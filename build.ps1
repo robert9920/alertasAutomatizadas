@@ -77,7 +77,27 @@ Invocar "PyInstaller termino con errores" { python -m PyInstaller @argumentos }
 $salida = "dist\App Alertas"
 if (-not $Carpeta) {
     New-Item -ItemType Directory -Force -Path $salida | Out-Null
-    Move-Item -Force "dist\App Alertas.exe" "$salida\App Alertas.exe"
+    $recien = "dist\App Alertas.exe"
+    $final  = "$salida\App Alertas.exe"
+
+    # Si el .exe anterior esta bloqueado (la aplicacion abierta, el antivirus
+    # analizandolo) el Move-Item falla y la entrega se quedaria con el binario
+    # viejo sin avisar. Se comprueba de forma explicita.
+    for ($intento = 1; $intento -le 5 -and (Test-Path $final); $intento++) {
+        Remove-Item -Force $final -ErrorAction SilentlyContinue
+        if (Test-Path $final) { Start-Sleep -Milliseconds 700 }
+    }
+    if (Test-Path $final) {
+        throw "No se pudo reemplazar '$final'. Cierra App Alertas.exe y vuelve a intentarlo."
+    }
+
+    Move-Item -Force $recien $final -ErrorAction SilentlyContinue
+    if (Test-Path $recien) {
+        throw "El ejecutable recien compilado no se pudo mover a '$final'."
+    }
+    if (-not (Test-Path $final)) {
+        throw "No se encontro el ejecutable compilado en '$final'."
+    }
 }
 
 if (Test-Path "BD_Reportes.xlsx") {

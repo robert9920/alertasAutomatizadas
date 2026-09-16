@@ -29,6 +29,11 @@ config.json
 # Correos guardados como borrador desde la aplicación
 *.eml
 
+# Firma personal: lleva nombre, correo y teléfono de quien usa la aplicación
+firma.png
+firma.jpg
+firma.jpeg
+
 # -----------------------------------------------------------------------------
 #  Resultados de compilación y empaquetado
 # -----------------------------------------------------------------------------

@@ -92,6 +92,8 @@ class VentanaPrincipal(QMainWindow):
         self.bd: modulo_bd.BaseDatos | None = None
         self.datos = None
         self.png: bytes | None = None
+        self.firma: bytes | None = None
+        self.firma_subtipo: str = "png"
         self.oscuro = False
         self._tareas: list[Tarea] = []
 
@@ -296,8 +298,22 @@ class VentanaPrincipal(QMainWindow):
         except OSError as exc:
             QMessageBox.warning(self, "No se pudo abrir", f"{ruta}\n\n{exc}")
 
+    def _cargar_firma(self) -> None:
+        """Imagen de firma para el pie del correo; se relee en cada Actualizar."""
+        self.firma, self.firma_subtipo = None, "png"
+        ruta = config.ruta_firma(self.bd.cfg("Ruta firma") if self.bd else "")
+        if ruta is None:
+            return
+        try:
+            self.firma = ruta.read_bytes()
+        except OSError as exc:
+            self.log.warning("No se pudo leer la firma %s: %s", ruta, exc)
+            return
+        self.firma_subtipo = "jpeg" if ruta.suffix.lower() in (".jpg", ".jpeg") else "png"
+
     def _bd_cargada(self, base: modulo_bd.BaseDatos, codigo_previo: str | None) -> None:
         self.bd = base
+        self._cargar_firma()
         self.etiqueta_bd.setText(f"Base de datos: {base.ruta}")
         self._pintar_proyectos(codigo_previo)
 
@@ -373,7 +389,7 @@ class VentanaPrincipal(QMainWindow):
             imagen = None
             if datos.ev.semanas:
                 try:
-                    imagen = chart.generar(datos.ev, opciones)
+                    imagen = chart.generar(datos.ev, opciones, titulo=datos.nombre)
                 except Exception as exc:                        # noqa: BLE001
                     datos.avisos.append(f"No se pudo dibujar la Curva S: {exc}")
             return datos, imagen
@@ -439,9 +455,14 @@ class VentanaPrincipal(QMainWindow):
 
         entregables = self.panel_datos.entregables_seleccionados()
         html = email_builder.construir_html(
-            self.bd, self.datos, entregables, incluir_grafico=self.png is not None
+            self.bd, self.datos, entregables,
+            incluir_grafico=self.png is not None,
+            incluir_firma=self.firma is not None,
         )
-        self.editor.establecer_html(html, self.png)
+        self.editor.establecer_html(html, {
+            email_builder.CID_GRAFICO: self.png,
+            email_builder.CID_FIRMA: self.firma,
+        })
         self.panel_envio.asunto.setText(
             email_builder.construir_asunto(self.bd, self.datos, entregables)
         )
@@ -462,6 +483,8 @@ class VentanaPrincipal(QMainWindow):
             html=html,
             texto=email_builder.a_texto_plano(html),
             imagen=self.png if "cid:" + email_builder.CID_GRAFICO in html else None,
+            firma=self.firma if "cid:" + email_builder.CID_FIRMA in html else None,
+            firma_subtipo=self.firma_subtipo,
             para=para, cc=cc, cco=cco,
             adjuntos=self.panel_envio.adjuntos(),
         )

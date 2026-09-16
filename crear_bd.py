@@ -30,6 +30,7 @@ from app.constantes import (  # noqa: E402
     ESTADO_FILTRO_DEFECTO,
     NOMBRE_BD,
     PLANTILLA_DEFECTO,
+    SECCIONES_CONFIG,
     SMTP_DEFECTO,
 )
 
@@ -77,11 +78,29 @@ def _escribir_filas(ws, filas: list[list], inicio: int = 2) -> None:
 
 
 def _hoja_parametros(wb, nombre: str, valores: dict[str, str], ayuda: dict[str, str],
-                     ancho_valor: int = 60) -> None:
+                     ancho_valor: int = 60,
+                     secciones: dict[str, str] | None = None) -> dict[str, int]:
+    """Crea una hoja Parámetro/Valor y devuelve en qué fila quedó cada clave."""
     ws = wb.create_sheet(nombre)
-    _encabezados(ws, ["Parámetro", "Valor", "Ayuda"], [28, ancho_valor, 62])
+    _encabezados(ws, ["Parámetro", "Valor", "Ayuda"], [30, ancho_valor, 62])
+    secciones = secciones or {}
+    posiciones: dict[str, int] = {}
     fila = 2
     for clave, valor in valores.items():
+        titulo_seccion = secciones.get(clave)
+        if titulo_seccion:
+            if fila > 2:
+                fila += 1                       # una fila en blanco de respiro
+            celda = ws.cell(row=fila, column=1, value=titulo_seccion)
+            celda.font = Font(name="Segoe UI", size=10, bold=True, color=BLANCO)
+            celda.fill = PatternFill("solid", fgColor=AZUL)
+            celda.alignment = Alignment(vertical="center")
+            for columna in (2, 3):
+                ws.cell(row=fila, column=columna).fill = PatternFill(
+                    "solid", fgColor=AZUL
+                )
+            fila += 1
+        posiciones[clave] = fila
         celda_clave = ws.cell(row=fila, column=1, value=clave)
         celda_clave.font = Font(name="Segoe UI", size=10, bold=True)
         celda_clave.fill = RELLENO_PARAM
@@ -101,6 +120,8 @@ def _hoja_parametros(wb, nombre: str, valores: dict[str, str], ayuda: dict[str, 
         if len(str(valor)) > 90:
             ws.row_dimensions[fila].height = 58
         fila += 1
+    ws.freeze_panes = "A2"
+    return posiciones
 
 
 def _validacion(ws, formula: str, rango: str, titulo: str, mensaje: str) -> None:
@@ -241,12 +262,25 @@ def construir(destino: Path, ruta_referencia: Path | None = None) -> Path:
     # ------------------------- Parámetros y textos ------------------------- #
     _hoja_parametros(wb, "SMTP", SMTP_DEFECTO, AYUDA_SMTP, ancho_valor=34)
     _hoja_parametros(wb, "Plantilla", PLANTILLA_DEFECTO, AYUDA_PLANTILLA, ancho_valor=86)
-    _hoja_parametros(wb, "Config", CONFIG_DEFECTO, AYUDA_CONFIG, ancho_valor=22)
+    filas = _hoja_parametros(wb, "Config", CONFIG_DEFECTO, AYUDA_CONFIG,
+                             ancho_valor=24, secciones=SECCIONES_CONFIG)
 
     ws = wb["Config"]
-    _validacion(ws, '"Sí,No"', "B9", "Etiquetas", "Mostrar el % sobre puntos y barras.")
-    _validacion(ws, '"Todas,Hasta semana de corte"', "B13", "Semanas", "Rango del eje X.")
-    _validacion(ws, '"Claro,Oscuro"', "B14", "Tema", "Apariencia de la aplicación.")
+    for clave, opciones, titulo, mensaje in (
+        ("Mostrar etiquetas de datos", '"Sí,No"', "Etiquetas",
+         "Mostrar el % sobre puntos y barras."),
+        ("Semanas a mostrar", '"Todas,Hasta semana de corte"', "Semanas",
+         "Rango del eje X."),
+        ("Tema", '"Claro,Oscuro"', "Tema", "Apariencia de la aplicación."),
+    ):
+        if clave in filas:
+            _validacion(ws, opciones, f"B{filas[clave]}", titulo, mensaje)
+
+    ws.cell(row=filas["Ruta firma"], column=2).comment = Comment(
+        "Deja esto vacío y guarda tu firma como firma.png en la misma carpeta "
+        "que App Alertas.exe: la aplicación la encuentra sola.\n\n"
+        "Si la tienes en otro sitio (por ejemplo una carpeta de red), escribe "
+        "aquí la ruta completa del archivo.", "App Alertas")
 
     destino.parent.mkdir(parents=True, exist_ok=True)
     wb.save(destino)

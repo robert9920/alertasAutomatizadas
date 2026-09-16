@@ -144,6 +144,14 @@ class BaseDatos:
     def cfg_bool(self, clave: str, defecto: bool = True) -> bool:
         return es_verdadero(self.cfg(clave), defecto)
 
+    def cfg_opcional(self, clave: str) -> str | None:
+        """Texto del parámetro, o None si está vacío (significa «automático»)."""
+        valor = self.cfg(clave).strip()
+        return valor or None
+
+    def cfg_float_opcional(self, clave: str) -> float | None:
+        return a_float(self.cfg_opcional(clave))
+
     def txt(self, clave: str) -> str:
         valor = self.plantilla.get(normalizar(clave))
         if valor is None or str(valor).strip() == "":

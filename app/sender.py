@@ -9,7 +9,7 @@ from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
 from pathlib import Path
 
-from .email_builder import CID_GRAFICO
+from .email_builder import CID_FIRMA, CID_GRAFICO
 
 
 class ErrorEnvio(Exception):
@@ -22,6 +22,8 @@ class Envio:
     html: str = ""
     texto: str = ""
     imagen: bytes | None = None
+    firma: bytes | None = None
+    firma_subtipo: str = "png"
     para: list[str] = field(default_factory=list)
     cc: list[str] = field(default_factory=list)
     cco: list[str] = field(default_factory=list)
@@ -69,12 +71,18 @@ def construir_mensaje(cfg, envio: Envio) -> EmailMessage:
     mensaje.set_content(envio.texto or "Este correo requiere un lector con HTML.")
     mensaje.add_alternative(envio.html, subtype="html")
 
-    if envio.imagen:
+    if envio.imagen or envio.firma:
         parte_html = mensaje.get_payload()[-1]
-        parte_html.add_related(
-            envio.imagen, maintype="image", subtype="png",
-            cid=f"<{CID_GRAFICO}>", filename="curva_s.png",
-        )
+        if envio.imagen:
+            parte_html.add_related(
+                envio.imagen, maintype="image", subtype="png",
+                cid=f"<{CID_GRAFICO}>", filename="curva_s.png",
+            )
+        if envio.firma:
+            parte_html.add_related(
+                envio.firma, maintype="image", subtype=envio.firma_subtipo,
+                cid=f"<{CID_FIRMA}>", filename=f"firma.{envio.firma_subtipo}",
+            )
 
     for adjunto in envio.adjuntos:
         ruta = Path(adjunto)

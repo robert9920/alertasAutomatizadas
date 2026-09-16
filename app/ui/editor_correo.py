@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..email_builder import CID_GRAFICO, limpiar_html_editor
+from ..email_builder import limpiar_html_editor
 
 TAMANOS = ["8", "9", "10", "11", "12", "14", "16", "18"]
 
@@ -28,7 +28,7 @@ class EditorCorreo(QWidget):
         super().__init__(parent)
         self._cargando = False
         self._editado = False
-        self._imagen: QImage | None = None
+        self._imagenes: dict[str, QImage] = {}
 
         self._fuente = 0          # 0 = vista visual, 1 = codigo HTML
 
@@ -181,20 +181,21 @@ class EditorCorreo(QWidget):
 
     # -- contenido -------------------------------------------------------- #
     def _registrar_imagen(self) -> None:
-        if self._imagen is None:
-            return
-        self.visual.document().addResource(
-            QTextDocument.ResourceType.ImageResource,
-            QUrl(f"cid:{CID_GRAFICO}"),
-            self._imagen,
-        )
+        for cid, imagen in self._imagenes.items():
+            self.visual.document().addResource(
+                QTextDocument.ResourceType.ImageResource,
+                QUrl(f"cid:{cid}"),
+                imagen,
+            )
 
-    def establecer_html(self, html: str, imagen: bytes | None = None) -> None:
+    def establecer_html(self, html: str, imagenes: dict[str, bytes] | None = None) -> None:
         """Carga el correo generado y descarta la marca de edicion manual."""
-        if imagen is not None:
+        for cid, datos in (imagenes or {}).items():
+            if not datos:
+                continue
             qimagen = QImage()
-            if qimagen.loadFromData(QByteArray(imagen), "PNG"):
-                self._imagen = qimagen
+            if qimagen.loadFromData(QByteArray(datos)):
+                self._imagenes[cid] = qimagen
         self._cargando = True
         try:
             self._registrar_imagen()

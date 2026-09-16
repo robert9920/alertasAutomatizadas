@@ -3,6 +3,9 @@
 Un unico eje X de semanas, eje Y izquierdo para las lineas acumuladas y eje Y
 derecho para las barras semanales, con dos bandas inferiores (semanas y meses).
 Devuelve la imagen en PNG lista para incrustar en el correo.
+
+Tamanos y colores salen de la hoja Config; los tamanos que se dejan vacios se
+ajustan solos al numero de semanas.
 """
 from __future__ import annotations
 
@@ -17,15 +20,21 @@ from matplotlib.figure import Figure          # noqa: E402
 from matplotlib.lines import Line2D           # noqa: E402
 from matplotlib.patches import Patch, Rectangle  # noqa: E402
 
-# Colores tomados del grafico original
-NEGRO = "#1A1A1A"
-VERDE = "#4EA72E"
-AZUL = "#2F5BE8"
-GRIS_BARRA = "#BFBFBF"
+from .constantes import (                      # noqa: E402
+    COLOR_BANDA_EJE_X,
+    COLOR_BARRA_PREVISTO,
+    COLOR_LINEA_PREVISTO,
+    COLOR_LINEA_REAL,
+    COLOR_LINEA_TENDENCIA,
+    COLOR_TEXTO_EJE_X,
+)
+
 GRIS_REJILLA = "#D9D9D9"
+# Los porcentajes de los ejes Y y la leyenda no siguen al color del eje X:
+# si no, oscurecer las bandas los dejaria invisibles.
 GRIS_TEXTO = "#595959"
-GRIS_BANDA = "#F2F2F2"
 BORDE_BANDA = "#BFBFBF"
+NEGRO_ETIQUETA = "#000000"
 
 FUENTES = ["Segoe UI", "Calibri", "DejaVu Sans", "sans-serif"]
 
@@ -36,9 +45,19 @@ ANCHO_ETIQUETAS_PX = 34     # las etiquetas del eje derecho ocupan 27 px
 AIRE_PX = 16                # separacion entre esas etiquetas y la leyenda
 MARGEN_DERECHO_PX = 14
 
+IZQUIERDA = 0.055
+ARRIBA_SIN_TITULO = 0.965
+
+# Dos cifras que difieran menos que esto se consideran la misma y se dibuja una.
+EPSILON_IGUAL = 0.05
+# Por debajo de esta fraccion del eje izquierdo no cabe una etiqueta "abajo":
+# se saldria del area de trazado y pisaria la banda de semanas.
+FRACCION_PISO = 0.07
+
 
 @dataclass
 class OpcionesGrafico:
+    # -- tamano de la imagen y ejes ---------------------------------------- #
     ancho_px: int = 1400
     alto_px: int = 520
     dpi: int = 110
@@ -48,8 +67,42 @@ class OpcionesGrafico:
     der_max: float = 60.0
     etiquetas: bool = True
 
+    # -- tamanos de letra (None = se ajusta al numero de semanas) ---------- #
+    tam_etiquetas_lineas: float | None = None
+    tam_etiquetas_barras: float | None = None
+    tam_eje_izq: float = 8.0
+    tam_eje_der: float = 8.0
+    tam_semanas: float | None = None
+    tam_meses: float | None = None
+    tam_leyenda: float = 8.0
+    tam_titulo: float = 11.0
+
+    # -- colores de las series --------------------------------------------- #
+    color_linea_previsto: str = COLOR_LINEA_PREVISTO
+    color_linea_real: str = COLOR_LINEA_REAL
+    color_linea_tendencia: str = COLOR_LINEA_TENDENCIA
+    color_barra_previsto: str = COLOR_BARRA_PREVISTO
+    color_barra_real: str = COLOR_LINEA_REAL
+    color_barra_tendencia: str = COLOR_LINEA_TENDENCIA
+
+    # -- colores de las etiquetas (None = heredado) ------------------------ #
+    color_etq_linea_previsto: str | None = None
+    color_etq_linea_real: str | None = None
+    color_etq_linea_tendencia: str | None = None
+    color_etq_barra_previsto: str | None = None
+    color_etq_barra_real: str | None = None
+    color_etq_barra_tendencia: str | None = None
+
+    # -- eje X y titulo ----------------------------------------------------- #
+    color_banda: str = COLOR_BANDA_EJE_X
+    color_texto_banda: str = COLOR_TEXTO_EJE_X
+    color_titulo: str = COLOR_LINEA_PREVISTO
+
     @classmethod
     def desde_bd(cls, bd) -> "OpcionesGrafico":
+        def color(clave: str, defecto: str) -> str:
+            return bd.cfg_opcional(clave) or defecto
+
         return cls(
             ancho_px=bd.cfg_int("Ancho gráfico px", 1400),
             alto_px=bd.cfg_int("Alto gráfico px", 520),
@@ -59,9 +112,95 @@ class OpcionesGrafico:
             der_min=bd.cfg_float("Eje Y der mín", 0.0),
             der_max=bd.cfg_float("Eje Y der máx", 60.0),
             etiquetas=bd.cfg_bool("Mostrar etiquetas de datos", True),
+
+            tam_etiquetas_lineas=bd.cfg_float_opcional("Tamaño etiquetas líneas"),
+            tam_etiquetas_barras=bd.cfg_float_opcional("Tamaño etiquetas barras"),
+            tam_eje_izq=bd.cfg_float("Tamaño eje Y izquierdo", 8.0),
+            tam_eje_der=bd.cfg_float("Tamaño eje Y derecho", 8.0),
+            tam_semanas=bd.cfg_float_opcional("Tamaño eje X semanas"),
+            tam_meses=bd.cfg_float_opcional("Tamaño eje X meses"),
+            tam_leyenda=bd.cfg_float("Tamaño leyenda", 8.0),
+            tam_titulo=bd.cfg_float("Tamaño título gráfico", 11.0),
+
+            color_linea_previsto=color("Color línea Previsto Acum", COLOR_LINEA_PREVISTO),
+            color_linea_real=color("Color línea Real Acum", COLOR_LINEA_REAL),
+            color_linea_tendencia=color("Color línea Tendencia Acum", COLOR_LINEA_TENDENCIA),
+            color_barra_previsto=color("Color barra Previsto", COLOR_BARRA_PREVISTO),
+            color_barra_real=color("Color barra Real", COLOR_LINEA_REAL),
+            color_barra_tendencia=color("Color barra Tendencia", COLOR_LINEA_TENDENCIA),
+
+            color_etq_linea_previsto=bd.cfg_opcional("Color etiqueta Previsto Acum"),
+            color_etq_linea_real=bd.cfg_opcional("Color etiqueta Real Acum"),
+            color_etq_linea_tendencia=bd.cfg_opcional("Color etiqueta Tendencia Acum"),
+            color_etq_barra_previsto=bd.cfg_opcional("Color etiqueta barra Previsto"),
+            color_etq_barra_real=bd.cfg_opcional("Color etiqueta barra Real"),
+            color_etq_barra_tendencia=bd.cfg_opcional("Color etiqueta barra Tendencia"),
+
+            color_banda=color("Color bandas eje X", COLOR_BANDA_EJE_X),
+            color_texto_banda=color("Color texto eje X", COLOR_TEXTO_EJE_X),
+            color_titulo=color("Color título gráfico", COLOR_LINEA_PREVISTO),
         )
 
+    # -- tamanos resueltos segun el numero de semanas ---------------------- #
+    def letra_etiquetas_lineas(self, n: int) -> float:
+        return self.tam_etiquetas_lineas or (7.0 if n <= 26 else 6.0)
 
+    def letra_etiquetas_barras(self, n: int) -> float:
+        return self.tam_etiquetas_barras or (5.5 if n <= 30 else 4.8)
+
+    def letra_semanas(self, n: int) -> float:
+        return self.tam_semanas or (7.0 if n <= 30 else 5.8)
+
+    def letra_meses(self, n: int) -> float:
+        return self.tam_meses or (7.5 if n <= 30 else 6.5)
+
+
+# --------------------------------------------------------------------------- #
+# Posicion de las etiquetas
+# --------------------------------------------------------------------------- #
+def posiciones_etiquetas(
+    previsto: list[float], real: list[float], tendencia: list[float]
+) -> tuple[list[str | None], list[str | None], list[str | None]]:
+    """Decide, semana a semana, de que lado va la etiqueta de cada linea.
+
+    Devuelve "arriba", "abajo" o None (no dibujarla) para previsto, real y
+    tendencia. La referencia de cada semana es el % Real Acum y, cuando este ya
+    no tiene datos, el % Tendencia Acum: el previsto siempre queda al lado
+    contrario de su referencia. Si dos cifras coinciden se dibuja una sola, y la
+    primera etiqueta de la tendencia se omite porque repite el ultimo valor real.
+    """
+    n = len(previsto)
+    pos_p: list[str | None] = [None] * n
+    pos_r: list[str | None] = [None] * n
+    pos_t: list[str | None] = [None] * n
+
+    for i in range(n):
+        p, r, t = previsto[i], real[i], tendencia[i]
+        hay_p, hay_r, hay_t = p == p, r == r, t == t       # nan != nan
+
+        if hay_r:
+            pos_r[i] = "arriba" if (not hay_p or r > p) else "abajo"
+        if hay_t:
+            pos_t[i] = "arriba" if (not hay_p or t > p) else "abajo"
+
+        if hay_p:
+            # una cifra practicamente igual a la del previsto se omite
+            if hay_r and abs(r - p) < EPSILON_IGUAL:
+                pos_r[i] = None
+            if hay_t and abs(t - p) < EPSILON_IGUAL:
+                pos_t[i] = None
+
+            lado_referencia = pos_r[i] if hay_r else (pos_t[i] if hay_t else None)
+            pos_p[i] = "abajo" if lado_referencia == "arriba" else "arriba"
+
+    primera_tendencia = next((i for i, v in enumerate(tendencia) if v == v), None)
+    if primera_tendencia is not None:
+        pos_t[primera_tendencia] = None
+
+    return pos_p, pos_r, pos_t
+
+
+# --------------------------------------------------------------------------- #
 def _a_porcentaje(serie: list[float | None], n: int) -> list[float]:
     salida: list[float] = []
     for i in range(n):
@@ -82,22 +221,22 @@ def _banda(fig, gs, indice: int, limites: tuple[float, float]):
 
 
 def _cajas(ax, bloques: list[tuple[str, float, float]], tam_letra: float,
-           color_texto: str, negrita: bool = False) -> None:
+           color_fondo: str, color_texto: str) -> None:
     for etiqueta, ini, fin in bloques:
         ax.add_patch(
             Rectangle(
                 (ini, 0.05), fin - ini, 0.9,
-                facecolor=GRIS_BANDA, edgecolor=BORDE_BANDA, linewidth=0.6,
+                facecolor=color_fondo, edgecolor=BORDE_BANDA, linewidth=0.6,
             )
         )
         ax.text(
             (ini + fin) / 2, 0.5, etiqueta,
             ha="center", va="center", fontsize=tam_letra, color=color_texto,
-            fontweight="bold" if negrita else "normal",
         )
 
 
-def generar(datos_ev, opciones: OpcionesGrafico | None = None) -> bytes:
+def generar(datos_ev, opciones: OpcionesGrafico | None = None,
+            titulo: str = "") -> bytes:
     """Devuelve el PNG de la Curva S."""
     opciones = opciones or OpcionesGrafico()
     n = len(datos_ev.semanas)
@@ -120,21 +259,33 @@ def generar(datos_ev, opciones: OpcionesGrafico | None = None) -> bytes:
     fig.patch.set_linewidth(1.0)
     matplotlib.rcParams["font.family"] = FUENTES
 
-    # El hueco de la derecha se calcula en pixeles y no como fraccion fija: asi
-    # la leyenda nunca pisa las etiquetas del eje derecho, sea cual sea el
-    # "Ancho grafico px" configurado. Hay que hacerlo antes de crear la rejilla
-    # porque gs.update() no reposiciona los ejes ya creados.
+    # El hueco de la derecha y el del titulo se calculan en pixeles y no como
+    # fraccion fija: asi la leyenda nunca pisa las etiquetas del eje derecho y el
+    # area de trazado no se descuadra al cambiar el tamano de la imagen.
     reserva = ANCHO_ETIQUETAS_PX + AIRE_PX + ANCHO_LEYENDA_PX + MARGEN_DERECHO_PX
     derecha = min(max(1 - reserva / opciones.ancho_px, 0.55), 0.90)
     ancla_leyenda = 1 - (ANCHO_LEYENDA_PX + MARGEN_DERECHO_PX) / opciones.ancho_px
 
+    if titulo.strip():
+        alto_titulo = opciones.tam_titulo * 2.4 + 6
+        arriba = min(max(1 - alto_titulo / opciones.alto_px, 0.70), ARRIBA_SIN_TITULO)
+    else:
+        arriba = ARRIBA_SIN_TITULO
+
     alto_banda = 0.055 if n <= 40 else 0.05
     gs = fig.add_gridspec(
         3, 1, height_ratios=[1, alto_banda, alto_banda], hspace=0.0,
-        left=0.055, right=derecha, top=0.965, bottom=0.04,
+        left=IZQUIERDA, right=derecha, top=arriba, bottom=0.04,
     )
     ax = fig.add_subplot(gs[0, 0])
     ax2 = ax.twinx()
+
+    if titulo.strip():
+        fig.text(
+            (IZQUIERDA + derecha) / 2, (1 + arriba) / 2, titulo.strip(),
+            ha="center", va="center", fontsize=opciones.tam_titulo,
+            color=opciones.color_titulo, fontweight="bold",
+        )
 
     limites = (-0.6, n - 0.4)
     ax.set_xlim(*limites)
@@ -146,11 +297,14 @@ def generar(datos_ev, opciones: OpcionesGrafico | None = None) -> bytes:
     ancho = 0.26 if n <= 30 else 0.28
     separacion = ancho + 0.02          # deja aire entre barras contiguas
     barras = [
-        ([x - separacion for x in indices], previsto, GRIS_BARRA, "% Previsto"),
-        (indices, real, VERDE, "% Real"),
-        ([x + separacion for x in indices], tendencia, AZUL, "% Tendencia"),
+        ([x - separacion for x in indices], previsto, opciones.color_barra_previsto,
+         opciones.color_etq_barra_previsto or NEGRO_ETIQUETA, "% Previsto"),
+        (indices, real, opciones.color_barra_real,
+         opciones.color_etq_barra_real or NEGRO_ETIQUETA, "% Real"),
+        ([x + separacion for x in indices], tendencia, opciones.color_barra_tendencia,
+         opciones.color_etq_barra_tendencia or NEGRO_ETIQUETA, "% Tendencia"),
     ]
-    for posiciones, valores, color, _ in barras:
+    for posiciones, valores, color, _, _ in barras:
         ax2.bar(posiciones, valores, width=ancho, color=color, zorder=1,
                 edgecolor="white", linewidth=0.5)
 
@@ -159,22 +313,23 @@ def generar(datos_ev, opciones: OpcionesGrafico | None = None) -> bytes:
     ax.patch.set_visible(False)
 
     tam_marcador = 6 if n <= 30 else 5
-    ax.plot(indices, previsto_ac, color=NEGRO, linewidth=1.6, marker="o",
-            markersize=tam_marcador, markerfacecolor="white",
-            markeredgecolor=NEGRO, markeredgewidth=1.2, zorder=6)
-    ax.plot(indices, real_ac, color=VERDE, linewidth=2.0, marker="o",
-            markersize=tam_marcador, markerfacecolor=VERDE,
-            markeredgecolor=VERDE, zorder=7)
-    ax.plot(indices, tendencia_ac, color=AZUL, linewidth=1.6, linestyle=(0, (4, 3)),
-            marker="D", markersize=tam_marcador - 1, markerfacecolor="white",
-            markeredgecolor=AZUL, markeredgewidth=1.2, zorder=5)
+    ax.plot(indices, previsto_ac, color=opciones.color_linea_previsto, linewidth=1.6,
+            marker="o", markersize=tam_marcador, markerfacecolor="white",
+            markeredgecolor=opciones.color_linea_previsto, markeredgewidth=1.2, zorder=6)
+    ax.plot(indices, real_ac, color=opciones.color_linea_real, linewidth=2.0,
+            marker="o", markersize=tam_marcador, markerfacecolor=opciones.color_linea_real,
+            markeredgecolor=opciones.color_linea_real, zorder=7)
+    ax.plot(indices, tendencia_ac, color=opciones.color_linea_tendencia, linewidth=1.6,
+            linestyle=(0, (4, 3)), marker="D", markersize=tam_marcador - 1,
+            markerfacecolor="white", markeredgecolor=opciones.color_linea_tendencia,
+            markeredgewidth=1.2, zorder=5)
 
     # --- ejes ------------------------------------------------------------ #
     ax.set_axisbelow(True)
     ax.grid(axis="y", color=GRIS_REJILLA, linewidth=0.7, zorder=0)
     ax.set_xticks([])
-    ax.tick_params(axis="y", labelsize=8, colors=GRIS_TEXTO, length=0)
-    ax2.tick_params(axis="y", labelsize=8, colors=GRIS_TEXTO, length=0)
+    ax.tick_params(axis="y", labelsize=opciones.tam_eje_izq, colors=GRIS_TEXTO, length=0)
+    ax2.tick_params(axis="y", labelsize=opciones.tam_eje_der, colors=GRIS_TEXTO, length=0)
     ax.yaxis.set_major_formatter(lambda v, _: f"{v:.0f}%")
     ax2.yaxis.set_major_formatter(lambda v, _: f"{v:.0f}%")
     for lado in ("top", "right", "bottom"):
@@ -185,38 +340,39 @@ def generar(datos_ev, opciones: OpcionesGrafico | None = None) -> bytes:
 
     # --- etiquetas de datos --------------------------------------------- #
     if opciones.etiquetas:
-        tam = 7.0 if n <= 26 else 6.0
-        piso = opciones.izq_min + (opciones.izq_max - opciones.izq_min) * 0.07
+        tam = opciones.letra_etiquetas_lineas(n)
+        piso = opciones.izq_min + (opciones.izq_max - opciones.izq_min) * FRACCION_PISO
+        pos_p, pos_r, pos_t = posiciones_etiquetas(previsto_ac, real_ac, tendencia_ac)
 
-        def etiquetar(valores, color, arriba: bool, omitir_si_igual=None):
+        series = (
+            (previsto_ac, pos_p,
+             opciones.color_etq_linea_previsto or opciones.color_linea_previsto),
+            (real_ac, pos_r,
+             opciones.color_etq_linea_real or opciones.color_linea_real),
+            (tendencia_ac, pos_t,
+             opciones.color_etq_linea_tendencia or opciones.color_linea_tendencia),
+        )
+        for valores, posicion, color in series:
             for i, v in enumerate(valores):
-                if v != v:                                   # nan
+                if posicion[i] is None or v != v:
                     continue
-                if omitir_si_igual is not None:
-                    otro = omitir_si_igual[i]
-                    if otro == otro and abs(otro - v) < 0.6:  # duplicaria la cifra
-                        continue
-                # nunca por debajo de la linea cuando no hay espacio libre
-                hacia_arriba = arriba or v < piso
+                # abajo del todo no cabe: se saldria del area de trazado
+                arriba_final = posicion[i] == "arriba" or v < piso
                 ax.annotate(
                     f"{v:.1f}%", (i, v), textcoords="offset points",
-                    xytext=(0, 11 if hacia_arriba else -13), ha="center",
+                    xytext=(0, 11 if arriba_final else -13), ha="center",
                     fontsize=tam, color=color, fontweight="bold", zorder=8,
                 )
 
-        etiquetar(previsto_ac, NEGRO, arriba=True)
-        etiquetar(tendencia_ac, AZUL, arriba=True, omitir_si_igual=previsto_ac)
-        etiquetar(real_ac, VERDE, arriba=False, omitir_si_igual=previsto_ac)
-
-        tam_barra = 5.5 if n <= 30 else 4.8
-        for posiciones, valores, color, _ in barras:
+        tam_barra = opciones.letra_etiquetas_barras(n)
+        for posiciones, valores, _, color_etq, _ in barras:
             for x, v in zip(posiciones, valores):
                 if v != v or v < 1.5:            # cifras ilegibles en barras minimas
                     continue
                 ax2.annotate(
                     f"{v:.1f}%", (x, v), textcoords="offset points",
                     xytext=(0, 2), ha="center", va="bottom", rotation=90,
-                    fontsize=tam_barra, color=GRIS_TEXTO, zorder=3,
+                    fontsize=tam_barra, color=color_etq, zorder=3,
                 )
 
     # --- bandas de semanas y meses --------------------------------------- #
@@ -224,8 +380,9 @@ def generar(datos_ev, opciones: OpcionesGrafico | None = None) -> bytes:
     _cajas(
         ax_semanas,
         [(etiqueta, i - 0.5, i + 0.5) for i, etiqueta in enumerate(datos_ev.semanas)],
-        tam_letra=7.0 if n <= 30 else 5.8,
-        color_texto=GRIS_TEXTO,
+        tam_letra=opciones.letra_semanas(n),
+        color_fondo=opciones.color_banda,
+        color_texto=opciones.color_texto_banda,
     )
 
     ax_meses = _banda(fig, gs, 2, limites)
@@ -233,27 +390,30 @@ def generar(datos_ev, opciones: OpcionesGrafico | None = None) -> bytes:
     _cajas(
         ax_meses,
         [(etiqueta, ini - 0.5, fin + 0.5) for etiqueta, ini, fin in bloques],
-        tam_letra=7.5 if n <= 30 else 6.5,
-        color_texto=GRIS_TEXTO,
+        tam_letra=opciones.letra_meses(n),
+        color_fondo=opciones.color_banda,
+        color_texto=opciones.color_texto_banda,
     )
 
     # --- leyenda ---------------------------------------------------------- #
     elementos = [
-        Patch(facecolor=GRIS_BARRA, label="% Previsto"),
-        Patch(facecolor=VERDE, label="% Real"),
-        Patch(facecolor=AZUL, label="% Tendencia"),
-        Line2D([], [], color=NEGRO, linewidth=1.6, marker="o", markersize=6,
-               markerfacecolor="white", label="% Previsto Acum"),
-        Line2D([], [], color=VERDE, linewidth=2.0, marker="o", markersize=6,
-               label="% Real Acum"),
-        Line2D([], [], color=AZUL, linewidth=1.6, linestyle=(0, (4, 3)), marker="D",
-               markersize=5, markerfacecolor="white", label="% Tendencia Acum"),
+        Patch(facecolor=opciones.color_barra_previsto, label="% Previsto"),
+        Patch(facecolor=opciones.color_barra_real, label="% Real"),
+        Patch(facecolor=opciones.color_barra_tendencia, label="% Tendencia"),
+        Line2D([], [], color=opciones.color_linea_previsto, linewidth=1.6, marker="o",
+               markersize=6, markerfacecolor="white", label="% Previsto Acum"),
+        Line2D([], [], color=opciones.color_linea_real, linewidth=2.0, marker="o",
+               markersize=6, label="% Real Acum"),
+        Line2D([], [], color=opciones.color_linea_tendencia, linewidth=1.6,
+               linestyle=(0, (4, 3)), marker="D", markersize=5,
+               markerfacecolor="white", label="% Tendencia Acum"),
     ]
     # Se ancla el borde izquierdo de la leyenda: crezca lo que crezca el texto,
     # nunca invade la zona de las etiquetas del eje derecho.
     fig.legend(
         handles=elementos, loc="center left", bbox_to_anchor=(ancla_leyenda, 0.55),
-        frameon=False, fontsize=8, labelcolor=GRIS_TEXTO, handlelength=1.8,
+        frameon=False, fontsize=opciones.tam_leyenda,
+        labelcolor=GRIS_TEXTO, handlelength=1.8,
     )
 
     buffer = io.BytesIO()

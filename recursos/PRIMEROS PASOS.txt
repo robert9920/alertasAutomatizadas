@@ -77,10 +77,22 @@ que rellenar tres:
                         este archivo. Protege el acceso a la carpeta.
 
 Las demás hojas (MapeoLET, MapeoEV, Plantilla, Config) puedes dejarlas como
-están: solo hacen falta para ajustar textos o para Excel de proyecto que se
-salgan del formato habitual. Están explicadas en LEEME.md.
+están: solo hacen falta para ajustar textos, colores del gráfico o para Excel
+de proyecto que se salgan del formato habitual. Están explicadas en LEEME.md.
 
 Guarda el archivo cuando termines.
+
+
+-------------------------------------------------------------------------------
+3b. TU FIRMA (opcional pero recomendable)
+-------------------------------------------------------------------------------
+
+Guarda tu firma como una imagen llamada "firma.png" EN ESTA MISMA CARPETA, al
+lado de App Alertas.exe. La aplicación la encuentra sola y la coloca al final
+del correo, después del "Muchas gracias". No hay que configurar nada.
+
+Si prefieres tenerla en otro sitio, escribe la ruta completa del archivo en la
+hoja "Config", parámetro "Ruta firma". El ancho se ajusta con "Ancho firma px".
 
 
 -------------------------------------------------------------------------------

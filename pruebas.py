@@ -2,12 +2,13 @@
 
 Comprueba la lectura del Excel modelo, la tolerancia a cambios de estructura
 (nombres de hoja, columnas y filas desplazadas), el mapeo explicito de la BD,
-el filtro por estatus y el armado del correo.
+el filtro por estatus, las reglas de la Curva S y el armado del correo.
 
     python pruebas.py
 """
 from __future__ import annotations
 
+import datetime as dt
 import sys
 import tempfile
 import warnings
@@ -19,8 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from openpyxl import Workbook                                   # noqa: E402
 
 from app import bd as modulo_bd                                 # noqa: E402
-from app import chart, email_builder, lectura, sender           # noqa: E402
-from app.constantes import NOMBRE_BD                            # noqa: E402
+from app import chart, email_builder, lectura, let_reader, sender  # noqa: E402
+from app.constantes import COLUMNAS_CORREO, NOMBRE_BD           # noqa: E402
 from app.excel_compat import abrir as abrir_libro               # noqa: E402
 from app.excel_utils import coincide, normalizar                # noqa: E402
 
@@ -231,8 +232,79 @@ def prueba_mapeo_explicito(ruta: Path) -> None:
               str(len(datos.let.entregables)))
 
 
+def prueba_etiquetas_curva(datos) -> None:
+    print("\n6. Posición de las etiquetas de la Curva S")
+    if datos is None:
+        comprobar(False, "no se puede probar sin datos del archivo modelo")
+        return
+    ev = datos.ev
+    n = len(ev.semanas)
+    p = chart._a_porcentaje(ev.series["previsto_acum"], n)
+    r = chart._a_porcentaje(ev.series["real_acum"], n)
+    t = chart._a_porcentaje(ev.series["tendencia_acum"], n)
+    pos_p, pos_r, pos_t = chart.posiciones_etiquetas(p, r, t)
+    indice = {s: i for i, s in enumerate(ev.semanas)}
+
+    i = indice["S3"]
+    comprobar(pos_p[i] == "arriba" and pos_r[i] is None,
+              "S3: previsto = real, se dibuja una sola etiqueta arriba")
+
+    i = indice["S11"]
+    comprobar(pos_r[i] == "arriba" and pos_p[i] == "abajo",
+              "S11: el real supera al previsto, el real va arriba",
+              f"real {r[i]:.1f} > previsto {p[i]:.1f}")
+
+    i = indice["S14"]
+    comprobar(pos_p[i] == "arriba" and pos_r[i] == "abajo",
+              "S14: el previsto supera al real, el previsto va arriba",
+              f"previsto {p[i]:.1f} > real {r[i]:.1f}")
+
+    primera = next(j for j, v in enumerate(t) if v == v)
+    comprobar(pos_t[primera] is None,
+              "la primera etiqueta de tendencia se oculta (repite el último real)",
+              ev.semanas[primera])
+
+    i = indice["S18"]
+    comprobar(pos_p[i] == "arriba" and pos_t[i] == "abajo",
+              "S18: sin datos reales, la comparación pasa a la tendencia")
+
+    nan = float("nan")
+    pp, pr, pt = chart.posiciones_etiquetas([10.0, nan], [nan, 5.0], [nan, nan])
+    comprobar(pp[0] == "arriba" and pr[1] == "arriba",
+              "sin referencia, cada serie se etiqueta arriba")
+
+
+def prueba_dias_espera(datos) -> None:
+    print("\n7. Columna «DÍAS DE ESPERA»")
+    if datos is None:
+        comprobar(False, "no se puede probar sin datos del archivo modelo")
+        return
+    hoy = dt.date.today()
+    con_fecha = [e for e in datos.let.entregables if e.fecha_envio_dt]
+    comprobar(bool(con_fecha), "se leen las fechas reales, no solo el texto",
+              f"{len(con_fecha)} de {len(datos.let.entregables)} filas")
+
+    errores = [
+        e for e in con_fecha[:80]
+        if e.dias_espera != str((hoy - e.fecha_envio_dt).days)
+    ]
+    comprobar(not errores, "los días coinciden con la resta hoy − fecha de envío")
+
+    ejemplo = con_fecha[0]
+    comprobar(ejemplo.valor("dias_espera") == ejemplo.dias_espera,
+              "la columna se expone con el mismo nombre que usa la tabla",
+              f"{ejemplo.fecha_envio} -> {ejemplo.dias_espera} días")
+
+    sin_fecha = let_reader.Entregable(fila=1)
+    comprobar(sin_fecha.dias_espera == "", "sin fecha de envío, la celda queda vacía")
+
+    titulos = [t for _, t in COLUMNAS_CORREO]
+    comprobar(titulos.index("DÍAS DE ESPERA") == titulos.index("FECHA ÚLTIMO ENVÍO A CLIENTE") + 1,
+              "la columna va justo después de la fecha de último envío")
+
+
 def prueba_correo(datos) -> None:
-    print("\n6. Armado del correo")
+    print("\n8. Armado del correo")
     if datos is None:
         comprobar(False, "no se puede probar sin datos del archivo modelo")
         return
@@ -284,6 +356,8 @@ def main() -> int:
         prueba_hojas_renombradas(carpeta)
         ruta_movida = prueba_estructura_desplazada(carpeta)
         prueba_mapeo_explicito(ruta_movida)
+        prueba_etiquetas_curva(datos)
+        prueba_dias_espera(datos)
         prueba_correo(datos)
 
     fallos = [t for ok, t, _ in _resultados if not ok]

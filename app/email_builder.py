@@ -17,6 +17,7 @@ from string import Formatter
 from .constantes import COLUMNAS_CORREO
 
 CID_GRAFICO = "curva_s"
+CID_FIRMA = "firma"
 FUENTE = "Calibri, Arial, sans-serif"
 ANCHO_IMAGEN = 940
 
@@ -91,8 +92,8 @@ def _parrafo(texto: str) -> str:
     return f'<p style="margin:0 0 10px 0;">{cuerpo}</p>'
 
 
-def _tabla(entregables: list, color_encabezado: str) -> str:
-    anchos = ["28%", "13%", "23%", "10%", "12%", "14%"]
+def _tabla(entregables: list, color_encabezado: str, color_estatus: str) -> str:
+    anchos = ["25%", "12%", "21%", "9%", "11%", "8%", "14%"]
     filas = [
         '<table border="1" cellspacing="0" cellpadding="5" width="100%" '
         'style="border-collapse:collapse; border:1px solid #000000; '
@@ -100,8 +101,8 @@ def _tabla(entregables: list, color_encabezado: str) -> str:
     ]
 
     filas.append("<tr>")
-    for i, (_, titulo) in enumerate(COLUMNAS_CORREO):
-        fondo = "#F2F2F2" if i == len(COLUMNAS_CORREO) - 1 else color_encabezado
+    for i, (clave, titulo) in enumerate(COLUMNAS_CORREO):
+        fondo = color_estatus if clave == "estatus" else color_encabezado
         filas.append(
             f'<td width="{anchos[i]}" style="background-color:{fondo}; '
             'border:1px solid #000000; text-align:center; vertical-align:middle; '
@@ -124,9 +125,11 @@ def _tabla(entregables: list, color_encabezado: str) -> str:
     return "".join(filas)
 
 
-def construir_html(bd, datos, entregables: list, incluir_grafico: bool = True) -> str:
+def construir_html(bd, datos, entregables: list, incluir_grafico: bool = True,
+                   incluir_firma: bool = False) -> str:
     ctx = contexto(bd, datos, entregables)
     color = bd.cfg("Color encabezado tabla", "#F8827F")
+    color_estatus = bd.cfg("Color encabezado estatus", "#F2F2F2")
 
     partes = [
         f'<html><body style="font-family:{FUENTE}; font-size:11pt; color:#000000;">',
@@ -153,12 +156,19 @@ def construir_html(bd, datos, entregables: list, incluir_grafico: bool = True) -
     partes += [
         _parrafo(rellenar(bd.txt("Párrafo entregables 1"), ctx)),
         _parrafo(rellenar(bd.txt("Párrafo entregables 2"), ctx)),
-        _tabla(entregables, color) if entregables else _parrafo(
+        _tabla(entregables, color, color_estatus) if entregables else _parrafo(
             "<i>No hay entregables pendientes con el estatus seleccionado.</i>"
         ),
         '<p style="margin:14px 0 0 0;">'
         + html.escape(rellenar(bd.txt("Cierre"), ctx)) + "</p>",
     ]
+
+    if incluir_firma:
+        ancho_firma = bd.cfg_int("Ancho firma px", 330)
+        partes.append(
+            f'<p style="margin:10px 0 0 0;"><img src="cid:{CID_FIRMA}" '
+            f'width="{ancho_firma}" alt="Firma"></p>'
+        )
 
     firma = rellenar(bd.txt("Firma"), ctx)
     if firma.strip():

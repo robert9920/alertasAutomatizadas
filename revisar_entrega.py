@@ -25,12 +25,42 @@ def _valores(ws, fila: int, columnas: int = 12) -> list:
     return [ws.cell(row=fila, column=c).value for c in range(1, columnas + 1)]
 
 
+def _ejecutable_al_dia(carpeta: Path) -> str | None:
+    """El .exe del paquete debe ser mas nuevo que el codigo fuente.
+
+    Si la compilacion falla a medias (por ejemplo porque el ejecutable anterior
+    estaba bloqueado) la entrega se quedaria con el binario de la version previa
+    y nadie lo notaria hasta tenerlo instalado.
+    """
+    exe = carpeta / "App Alertas.exe"
+    if not exe.is_file():
+        return None
+
+    raiz = Path(__file__).resolve().parent
+    fuentes = list((raiz / "app").rglob("*.py")) + [raiz / "App_Alertas.py"]
+    fuentes = [f for f in fuentes if f.is_file() and "__pycache__" not in f.parts]
+    if not fuentes:
+        return None
+
+    mas_nueva = max(fuentes, key=lambda f: f.stat().st_mtime)
+    if exe.stat().st_mtime + 1 < mas_nueva.stat().st_mtime:
+        return (
+            f"el ejecutable es más antiguo que el código ({mas_nueva.name} cambió "
+            "después de compilar): vuelve a generar la entrega"
+        )
+    return None
+
+
 def revisar(carpeta: Path) -> list[str]:
     problemas: list[str] = []
 
     for nombre in ESPERADOS:
         if not (carpeta / nombre).is_file():
             problemas.append(f"falta {nombre}")
+
+    desfase = _ejecutable_al_dia(carpeta)
+    if desfase:
+        problemas.append(desfase)
 
     bd = carpeta / "BD_Reportes.xlsx"
     if not bd.is_file():

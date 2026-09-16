@@ -162,9 +162,42 @@ Asunto por defecto:
 
 ### Hoja `Config`
 
-Rangos de los ejes de la Curva S, tamaño y resolución de la imagen, etiquetas de datos,
-decimales de los indicadores, color del encabezado de la tabla, rango de semanas a
-graficar y tema de la aplicación.
+Está dividida en secciones. Cada parámetro lleva su ayuda en la tercera columna.
+
+| Sección | Qué controla |
+|---|---|
+| **Gráfico · tamaño de la imagen y ejes** | Ancho, alto, DPI, rangos de los dos ejes Y, semanas a mostrar y si se dibujan las etiquetas de datos. |
+| **Gráfico · tamaños de letra** | Etiquetas de las líneas y de las barras, porcentajes de cada eje Y, semanas y meses del eje X, leyenda y título. |
+| **Gráfico · colores de las series** | Las 3 líneas acumuladas y las 3 barras semanales. |
+| **Gráfico · colores de las etiquetas** | Las 6 por separado. |
+| **Gráfico · eje X y título** | Fondo y texto de los recuadros de semanas y meses, y color del título. |
+| **Correo · tabla de entregables** | Color del encabezado, color del encabezado de estatus y decimales de los indicadores. |
+| **Correo · firma** | Ruta de la firma y ancho con el que se inserta. |
+| **Aplicación** | Tema claro u oscuro. |
+
+Dos convenios importantes:
+
+- **Los tamaños de letra vacíos significan «automático»**: la aplicación los ajusta al
+  número de semanas, que es lo que mantiene legible un proyecto de 36 semanas. En cuanto
+  escribes un número, manda ese número.
+- **Los colores de etiqueta vacíos se heredan**: las de las líneas toman el color de su
+  propia línea y las de las barras salen en negro.
+
+Los porcentajes de los ejes Y y el texto de la leyenda no siguen a `Color texto eje X`:
+se mantienen en gris para que oscurecer las bandas no los deje invisibles.
+
+### La firma del correo
+
+Guarda tu firma como **`firma.png`** (también vale `.jpg`) **en la misma carpeta que
+`App Alertas.exe`**: la aplicación la encuentra sola, sin configurar nada. Se inserta
+después del «Muchas gracias».
+
+Si la tienes en otro sitio —por ejemplo una carpeta de red compartida— escribe la ruta
+completa del archivo en `Config` → `Ruta firma`. El ancho se ajusta con `Ancho firma px`
+(330 por defecto); el alto se calcula solo, respetando la proporción.
+
+La firma se vuelve a leer cada vez que pulsas **Actualizar**, así que puedes cambiarla sin
+cerrar la aplicación.
 
 ---
 
@@ -182,6 +215,20 @@ graficar y tema de la aplicación.
 - **Tabla de entregables**: filas de la hoja `LET` cuyo `ESTATUS DEL ENTREGABLE LC`
   coincide con el filtro. Si el valor configurado no existe en esa hoja, la app avisa y
   deja elegir cualquiera de los estatus presentes mediante casillas.
+- **Días de espera** = hoy − `FECHA ÚLTIMO ENVÍO A CLIENTE`, en días de calendario. Se
+  calcula al generar el correo, no al leer el Excel, así que sigue siendo correcto aunque
+  la aplicación lleve días abierta. Sin fecha de envío, la celda queda vacía.
+
+### Etiquetas de la Curva S
+
+Cada semana, la etiqueta de la línea que va por encima se dibuja arriba y la de la que va
+por debajo, abajo. La comparación es contra `% Previsto Acum`, usando como referencia el
+`% Real Acum` y, cuando este ya no tiene datos, el `% Tendencia Acum`.
+
+- Si las dos cifras coinciden (las líneas se superponen) se dibuja **una sola**.
+- La **primera etiqueta de `% Tendencia Acum` no se dibuja**, porque repite el último
+  valor de `% Real Acum`.
+- Una etiqueta que caiga demasiado abajo se sube, para que no se salga del gráfico.
 
 ---
 

@@ -278,19 +278,41 @@ def a_float(v) -> float | None:
         return None
 
 
+_FORMATOS_ENTRADA = ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d/%m/%y", "%d.%m.%Y")
+
+
+def a_fecha(v) -> _dt.date | None:
+    """Fecha real a partir de un datetime, un date, un serial de Excel o un texto."""
+    if v is None or isinstance(v, bool):
+        return None
+    if isinstance(v, _dt.datetime):
+        return v.date()
+    if isinstance(v, _dt.date):
+        return v
+    if isinstance(v, (int, float)):
+        serial = float(v)
+        if 20000 <= serial <= 80000:          # rango razonable de fechas Excel
+            return (_dt.datetime(1899, 12, 30) + _dt.timedelta(days=serial)).date()
+        return None
+    texto = str(v).strip()
+    if not texto:
+        return None
+    for formato in _FORMATOS_ENTRADA:
+        try:
+            return _dt.datetime.strptime(texto, formato).date()
+        except ValueError:
+            continue
+    return None
+
+
 def a_fecha_texto(v, formato: str = "%d/%m/%Y") -> str:
     """Formatea fechas reales y tambien seriales de Excel."""
     if v is None:
         return ""
-    if isinstance(v, _dt.datetime):
-        return v.strftime(formato)
-    if isinstance(v, _dt.date):
-        return v.strftime(formato)
+    fecha = a_fecha(v)
+    if fecha is not None:
+        return fecha.strftime(formato)
     if isinstance(v, (int, float)) and not isinstance(v, bool):
-        serial = float(v)
-        if 20000 <= serial <= 80000:          # rango razonable de fechas Excel
-            base = _dt.datetime(1899, 12, 30)
-            return (base + _dt.timedelta(days=serial)).strftime(formato)
         return str(v)
     return str(v).strip()
 

@@ -69,6 +69,31 @@ def ruta_recurso(nombre: str) -> Path | None:
     return None
 
 
+NOMBRES_FIRMA = ("firma.png", "firma.jpg", "firma.jpeg")
+
+
+def ruta_firma(configurada: str = "") -> Path | None:
+    """Imagen de firma para el pie del correo.
+
+    Orden: la ruta indicada en la hoja Config -> un archivo `firma.png` (o .jpg)
+    junto al ejecutable -> `recursos/firma.png`. Dejarla junto al ejecutable es
+    lo mas comodo: no hay que configurar nada.
+    """
+    if configurada and str(configurada).strip():
+        candidata = Path(str(configurada).strip())
+        return candidata if candidata.is_file() else None
+
+    for nombre in NOMBRES_FIRMA:
+        candidata = carpeta_app() / nombre
+        if candidata.is_file():
+            return candidata
+    for nombre in NOMBRES_FIRMA:
+        candidata = ruta_recurso(nombre)
+        if candidata is not None:
+            return candidata
+    return None
+
+
 def carpeta_logs() -> Path:
     destino = carpeta_datos() / "logs"
     try:

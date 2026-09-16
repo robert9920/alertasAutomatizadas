@@ -161,7 +161,7 @@ class PanelDatos(QWidget):
         cabecera.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         # anchos fijos pero ajustables: si no, el codigo del cliente (muy largo)
         # se come todo el espacio y deja ilegible el nombre del entregable
-        for indice, ancho in enumerate((330, 140, 290, 95, 120, 170), start=1):
+        for indice, ancho in enumerate((320, 130, 280, 90, 115, 95, 165), start=1):
             cabecera.setSectionResizeMode(indice, QHeaderView.ResizeMode.Interactive)
             self.tabla.setColumnWidth(indice, ancho)
         self.tabla.itemChanged.connect(self._fila_cambiada)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import date
 
 from .constantes import (
     CAMPOS_LET,
@@ -10,6 +11,7 @@ from .constantes import (
     FILA_INICIO_DATOS_LET,
 )
 from .excel_utils import (
+    a_fecha,
     a_fecha_texto,
     a_indice_columna,
     a_numero_fila,
@@ -36,6 +38,18 @@ class Entregable:
     revision: str = ""
     fecha_envio: str = ""
     estatus: str = ""
+    fecha_envio_dt: date | None = None
+
+    @property
+    def dias_espera(self) -> str:
+        """Dias transcurridos desde el ultimo envio al cliente.
+
+        Se calcula al consultarlo y no al leer el Excel, para que el numero siga
+        siendo correcto si la aplicacion se queda abierta de un dia para otro.
+        """
+        if self.fecha_envio_dt is None:
+            return ""
+        return str((date.today() - self.fecha_envio_dt).days)
 
     def valor(self, clave: str) -> str:
         return getattr(self, clave, "")
@@ -191,14 +205,16 @@ def leer(wb, proyecto) -> DatosLET:
         estatus = texto_limpio(valor(ws, fila, col.get("estatus", 0), combinadas))
         if not nombre and not codigo and not estatus:
             continue
+        bruto_fecha = valor(ws, fila, col.get("fecha_envio", 0), combinadas)
         entregable = Entregable(
             fila=fila,
             nombre=nombre,
             disciplina=texto_limpio(valor(ws, fila, col.get("disciplina", 0), combinadas)),
             codigo_cliente=codigo,
             revision=texto_limpio(valor(ws, fila, col.get("revision", 0), combinadas)),
-            fecha_envio=a_fecha_texto(valor(ws, fila, col.get("fecha_envio", 0), combinadas)),
+            fecha_envio=a_fecha_texto(bruto_fecha),
             estatus=estatus,
+            fecha_envio_dt=a_fecha(bruto_fecha),
         )
         datos.entregables.append(entregable)
         if estatus:
