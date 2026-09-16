@@ -1,0 +1,129 @@
+===============================================================================
+  APP ALERTAS  -  Primeros pasos
+  Reporte de avance y entregables por proyecto
+===============================================================================
+
+NO NECESITAS INSTALAR NADA.
+El programa lleva dentro todo lo que necesita (no hace falta Python ni ningún
+otro complemento). Solo requiere Windows 10 u 11 de 64 bits. Excel te hará
+falta únicamente para editar el archivo de configuración, no para que el
+programa funcione.
+
+
+-------------------------------------------------------------------------------
+1. COPIA LA CARPETA A UN SITIO DONDE PUEDAS ESCRIBIR
+-------------------------------------------------------------------------------
+
+Descomprime la carpeta completa en Documentos, en el Escritorio o en una
+carpeta de red propia.
+
+   NO la pongas en C:\Program Files ni en una carpeta de red de solo lectura:
+   el programa necesita escribir su registro de actividad al lado.
+
+Los cuatro archivos deben quedar juntos:
+
+   App Alertas.exe      el programa
+   BD_Reportes.xlsx     la configuración (proyectos, correos, servidor)
+   LEEME.md             el manual completo
+   PRIMEROS PASOS.txt   este archivo
+
+
+-------------------------------------------------------------------------------
+2. ABRE "App Alertas.exe"
+-------------------------------------------------------------------------------
+
+La primera vez Windows mostrará un aviso azul: "Windows protegió su PC".
+Aparece porque el programa no está firmado digitalmente, no porque tenga
+ningún problema.
+
+   Pulsa "Más información"  ->  "Ejecutar de todas formas".
+
+Solo ocurre la primera vez. Si tu antivirus lo bloquea, pide a la persona que
+te envió el programa la versión en carpeta, que suele dar menos problemas.
+
+El programa tarda unos segundos en abrir la primera vez. Al arrancar avisará
+de que no hay proyectos configurados: es lo normal, eso se arregla en el
+paso 3.
+
+
+-------------------------------------------------------------------------------
+3. RELLENA "BD_Reportes.xlsx"
+-------------------------------------------------------------------------------
+
+Ábrelo con Excel. Viene vacío, con las hojas ya preparadas. Como mínimo hay
+que rellenar tres:
+
+  Hoja "Proyectos"      Una fila por proyecto.
+                        - Código Proyecto y Nombre Proyecto
+                        - Ruta L: la CARPETA donde está el Excel de control
+                          de entregables
+                        - Nombre de Excel: el nombre del archivo SIN el ".xlsx"
+
+                        IMPORTANTE sobre "Ruta L": si el archivo está en una
+                        unidad de red, escribe la ruta completa en formato
+                        \\servidor\carpeta\proyecto en vez de la letra
+                        mapeada (L:\...). La misma letra puede apuntar a otra
+                        carpeta en otro equipo.
+
+  Hoja "Destinatarios"  Un correo por fila, con el Código Proyecto que le
+                        corresponde. En "Tipo Destinatario" elige Para, CC o
+                        CCO; si lo dejas vacío se envía como "Para".
+
+  Hoja "SMTP"           TUS datos de correo: servidor, puerto, usuario y
+                        contraseña. Vienen precargados los valores típicos de
+                        Microsoft 365 (smtp.office365.com / 587 / STARTTLS).
+
+                        Ojo: la contraseña se guarda en texto plano dentro de
+                        este archivo. Protege el acceso a la carpeta.
+
+Las demás hojas (MapeoLET, MapeoEV, Plantilla, Config) puedes dejarlas como
+están: solo hacen falta para ajustar textos o para Excel de proyecto que se
+salgan del formato habitual. Están explicadas en LEEME.md.
+
+Guarda el archivo cuando termines.
+
+
+-------------------------------------------------------------------------------
+4. VUELVE AL PROGRAMA Y PULSA "ACTUALIZAR"
+-------------------------------------------------------------------------------
+
+El botón "Actualizar" (o la tecla F5) relee el Excel sin cerrar el programa.
+Úsalo cada vez que cambies algo en BD_Reportes.xlsx.
+
+Tus proyectos aparecerán en la lista de la izquierda.
+
+
+-------------------------------------------------------------------------------
+5. ANTES DEL PRIMER ENVÍO REAL
+-------------------------------------------------------------------------------
+
+  - Pulsa "Probar SMTP" en la barra superior: comprueba la conexión con el
+    servidor sin enviar ningún correo.
+
+  - Selecciona un proyecto y pulsa "Guardar .eml". Abre ese archivo con
+    Outlook para ver exactamente cómo le llegará el correo al cliente.
+
+  - Revisa la pestaña "Datos y filtros": ahí están la semana de corte, los
+    indicadores y la lista de entregables que entrarán en la tabla. Puedes
+    desmarcar cualquiera.
+
+El correo es editable: puedes escribir directamente sobre él como en Word, y
+la pestaña "HTML" permite retoques finos. Se envía exactamente lo que ves.
+
+El botón "ENVIAR CORREO" pide siempre una confirmación con el resumen de
+destinatarios antes de que salga nada.
+
+
+-------------------------------------------------------------------------------
+SI ALGO FALLA
+-------------------------------------------------------------------------------
+
+Mira la carpeta "logs", que está junto al programa:
+
+   arranque_error.log   si el programa no llega a abrirse
+   app.log              actividad y errores durante el uso
+   historial.csv        registro de los correos enviados
+
+Los problemas más frecuentes y su solución están en LEEME.md, apartado 6.
+
+===============================================================================

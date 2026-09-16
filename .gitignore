@@ -1,0 +1,70 @@
+# =============================================================================
+#  App Alertas
+#  Inicializa el repositorio DENTRO de esta carpeta:
+#      cd "...\App Alertas"  &&  git init
+#  Si lo haces en la carpeta padre, subirías también Referencia\LE.xlsx, que
+#  contiene datos reales de un cliente.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+#  NUNCA subir: credenciales y datos de clientes
+# -----------------------------------------------------------------------------
+# BD_Reportes.xlsx guarda en la hoja SMTP el usuario y la contraseña en texto
+# plano, y en Proyectos/Destinatarios las rutas internas y los correos del
+# cliente. No hace falta versionarlo: `python crear_bd.py` lo regenera entero.
+BD_Reportes.xlsx
+
+# Cualquier otro Excel: en este proyecto siempre son datos de cliente.
+# Si alguna vez necesitas versionar uno: git add -f <archivo>
+*.xlsx
+*.xlsm
+*.xls
+
+# Archivos de bloqueo que crea Excel al abrir un libro
+~$*
+
+# Preferencias locales (ruta de la base de datos en este equipo)
+config.json
+
+# Correos guardados como borrador desde la aplicación
+*.eml
+
+# -----------------------------------------------------------------------------
+#  Resultados de compilación y empaquetado
+# -----------------------------------------------------------------------------
+build/
+dist/
+entrega/
+*.spec
+
+# -----------------------------------------------------------------------------
+#  Registros de la aplicación
+# -----------------------------------------------------------------------------
+logs/
+*.log
+
+# -----------------------------------------------------------------------------
+#  Python
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Entornos virtuales creados dentro de la carpeta del proyecto
+.venv/
+venv/
+env/
+
+# -----------------------------------------------------------------------------
+#  Editores y sistema operativo
+# -----------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store
