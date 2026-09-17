@@ -106,12 +106,17 @@ COLOR_LINEA_REAL = "#4EA72E"
 COLOR_LINEA_TENDENCIA = "#2F5BE8"
 COLOR_BARRA_PREVISTO = "#BFBFBF"
 COLOR_BANDA_EJE_X = "#F2F2F2"
+COLOR_CORPORATIVO = "#C32025"      # rojo de Lara Consulting
+COLOR_FONDO_INDICADOR = "#F7F8FA"
+COLOR_MARCO_GRAFICO = "#D8DCE3"
+COLOR_OK = "#107C41"
+COLOR_ALERTA = "#C0392B"
 COLOR_TEXTO_EJE_X = "#595959"
 
 CONFIG_DEFECTO: dict[str, str] = {
     # -- gráfico: tamaño y ejes ------------------------------------------- #
-    "Ancho gráfico px": "1400",
-    "Alto gráfico px": "520",
+    "Ancho gráfico px": "1800",
+    "Alto gráfico px": "900",
     "DPI": "110",
     "Eje Y izq mín": "0",
     "Eje Y izq máx": "120",
@@ -127,7 +132,10 @@ CONFIG_DEFECTO: dict[str, str] = {
     "Tamaño eje X semanas": "",
     "Tamaño eje X meses": "",
     "Tamaño leyenda": "8",
-    "Tamaño título gráfico": "11",
+    "Tamaño título gráfico": "16",
+    "Tamaño subtítulo gráfico": "10",
+    "Tamaño título indicadores": "9",
+    "Tamaño valor indicadores": "20",
     # -- gráfico: colores de las series ------------------------------------ #
     "Color línea Previsto Acum": COLOR_LINEA_PREVISTO,
     "Color línea Real Acum": COLOR_LINEA_REAL,
@@ -142,14 +150,22 @@ CONFIG_DEFECTO: dict[str, str] = {
     "Color etiqueta barra Previsto": "",
     "Color etiqueta barra Real": "",
     "Color etiqueta barra Tendencia": "",
-    # -- gráfico: eje X y título ------------------------------------------- #
+    # -- gráfico: eje X ------------------------------------------------------ #
     "Color bandas eje X": COLOR_BANDA_EJE_X,
     "Color texto eje X": COLOR_TEXTO_EJE_X,
-    "Color título gráfico": COLOR_LINEA_PREVISTO,
+    # -- gráfico: cabecera e indicadores -------------------------------------- #
+    "Subtítulo gráfico": "CURVA S DE AVANCE DEL PROYECTO",
+    "Color fondo título": COLOR_CORPORATIVO,
+    "Color título gráfico": "#FFFFFF",
+    "Mostrar indicadores en gráfico": "Sí",
+    "Color fondo indicadores": COLOR_FONDO_INDICADOR,
+    "Color marco gráfico": COLOR_MARCO_GRAFICO,
     # -- correo: tabla de entregables -------------------------------------- #
     "Color encabezado tabla": "#F8827F",
     "Color encabezado estatus": "#F2F2F2",
     "Decimales avance": "0",
+    "Mostrar indicadores en el texto": "No",
+    "Ancho imagen en el correo": "100%",
     # -- correo: firma ------------------------------------------------------ #
     "Ruta firma": "",
     "Ancho firma px": "330",
@@ -163,7 +179,8 @@ SECCIONES_CONFIG: dict[str, str] = {
     "Tamaño etiquetas líneas": "GRÁFICO · tamaños de letra  (vacío = se ajusta solo)",
     "Color línea Previsto Acum": "GRÁFICO · colores de las series",
     "Color etiqueta Previsto Acum": "GRÁFICO · colores de las etiquetas  (vacío = heredado)",
-    "Color bandas eje X": "GRÁFICO · eje X y título",
+    "Color bandas eje X": "GRÁFICO · eje X",
+    "Subtítulo gráfico": "GRÁFICO · cabecera e indicadores",
     "Color encabezado tabla": "CORREO · tabla de entregables",
     "Ruta firma": "CORREO · firma",
     "Tema": "APLICACIÓN",
@@ -172,8 +189,15 @@ SECCIONES_CONFIG: dict[str, str] = {
 _AYUDA_VACIO_AUTO = "Vacío: se ajusta solo al número de semanas. Con un número, manda ese."
 
 AYUDA_CONFIG: dict[str, str] = {
-    "Ancho gráfico px": "Ancho de la imagen de la Curva S.",
-    "Alto gráfico px": "Alto de la imagen de la Curva S.",
+    "Ancho gráfico px": (
+        "RESOLUCIÓN de la imagen, no el espacio que ocupa en el correo. "
+        "Más píxeles = más nítida. Para el ancho en el correo usa "
+        "«Ancho imagen en el correo»."
+    ),
+    "Alto gráfico px": (
+        "Resolución vertical. Junto con el ancho define la proporción "
+        "del gráfico (1800x900 = el doble de ancho que de alto)."
+    ),
     "DPI": "Resolución de la imagen (110 es nítido y liviano).",
     "Eje Y izq mín": "Mínimo del eje de las líneas acumuladas, en %.",
     "Eje Y izq máx": "Máximo del eje de las líneas acumuladas, en %.",
@@ -203,7 +227,21 @@ AYUDA_CONFIG: dict[str, str] = {
     "Color etiqueta barra Tendencia": "Vacío: negro.",
     "Color bandas eje X": "Fondo de los recuadros de semanas y meses.",
     "Color texto eje X": "Color de «S1», «S2», «Mes 1»… Ajústalo si oscureces las bandas.",
-    "Color título gráfico": "Color del nombre del proyecto sobre el gráfico.",
+    "Subtítulo gráfico": "Texto pequeño bajo el nombre del proyecto. Vacío: sin subtítulo.",
+    "Color fondo título": "Fondo de la banda superior del gráfico.",
+    "Color título gráfico": "Color del título y del subtítulo sobre esa banda.",
+    "Tamaño subtítulo gráfico": "Tamaño del subtítulo de la banda superior.",
+    "Mostrar indicadores en gráfico": (
+        "Sí / No. Fila inferior con Avance Planificado, Avance Real, Desviación y SPI."
+    ),
+    "Tamaño título indicadores": "Tamaño del rótulo de cada indicador.",
+    "Tamaño valor indicadores": "Tamaño de la cifra grande de cada indicador.",
+    "Color fondo indicadores": "Fondo de las tarjetas de indicadores.",
+    "Color marco gráfico": "Borde exterior del gráfico.",
+    "Mostrar indicadores en el texto": (
+        "Sí / No. Repite los 4 indicadores como lista en el cuerpo del correo. "
+        "Por defecto No, porque ya salen dentro del gráfico."
+    ),
     "Color encabezado tabla": "Fondo del encabezado de la tabla, salvo la última columna.",
     "Color encabezado estatus": "Fondo del encabezado de «ESTATUS DEL ENTREGABLE LC».",
     "Decimales avance": "Decimales de Planificado, Real y Desviación (0 = enteros).",
@@ -212,6 +250,11 @@ AYUDA_CONFIG: dict[str, str] = {
         "Si la tienes en otro sitio, escribe aquí la ruta completa del archivo."
     ),
     "Ancho firma px": "Ancho con el que se inserta la firma en el correo.",
+    "Ancho imagen en el correo": (
+        "Ancho con el que se MUESTRA la Curva S. 100% = ocupa lo mismo que la "
+        "tabla de entregables y se adapta a la ventana del cliente. También "
+        "admite un número de píxeles fijo, p. ej. 1200."
+    ),
     "Tema": "Claro  |  Oscuro",
 }
 

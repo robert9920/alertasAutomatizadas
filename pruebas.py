@@ -17,11 +17,11 @@ from pathlib import Path
 warnings.filterwarnings("ignore")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from openpyxl import Workbook                                   # noqa: E402
+from openpyxl import Workbook, load_workbook                    # noqa: E402
 
 from app import bd as modulo_bd                                 # noqa: E402
 from app import chart, email_builder, lectura, let_reader, sender  # noqa: E402
-from app.constantes import COLUMNAS_CORREO, NOMBRE_BD           # noqa: E402
+from app.constantes import COLOR_ALERTA, COLUMNAS_CORREO, NOMBRE_BD  # noqa: E402
 from app.excel_compat import abrir as abrir_libro               # noqa: E402
 from app.excel_utils import coincide, normalizar                # noqa: E402
 
@@ -303,8 +303,132 @@ def prueba_dias_espera(datos) -> None:
               "la columna va justo después de la fecha de último envío")
 
 
+def prueba_cabecera_e_indicadores(datos) -> None:
+    print("\n8. Cabecera e indicadores dentro de la gráfica")
+    if datos is None:
+        comprobar(False, "no se puede probar sin datos del archivo modelo")
+        return
+    base = modulo_bd.cargar(BASE / NOMBRE_BD)
+    opciones = chart.OpcionesGrafico.desde_bd(base)
+
+    comprobar(opciones.color_fondo_titulo.upper() == "#C32025",
+              "la banda del título usa el rojo corporativo", opciones.color_fondo_titulo)
+    comprobar(opciones.subtitulo == "CURVA S DE AVANCE DEL PROYECTO",
+              "subtítulo por defecto", opciones.subtitulo)
+    comprobar(opciones.mostrar_indicadores, "los indicadores salen activados")
+
+    tarjetas = chart._tarjetas_indicadores(datos.ev, opciones)
+    valores = {r: v for r, v, _, _ in tarjetas}
+    comprobar(len(tarjetas) == 4, "son cuatro indicadores", str(len(tarjetas)))
+    comprobar(valores["AVANCE PLANIFICADO"] == "60%" and valores["AVANCE REAL"] == "44%",
+              "las cifras coinciden con las del correo",
+              f"{valores['AVANCE PLANIFICADO']} / {valores['AVANCE REAL']}")
+    colores = {r: c for r, _, _, c in tarjetas}
+    comprobar(colores["DESVIACIÓN"] == COLOR_ALERTA,
+              "la desviación negativa se pinta en rojo")
+    comprobar(colores["SPI"] == COLOR_ALERTA, "el SPI por debajo de 0,95 se pinta en rojo",
+              valores["SPI"])
+
+    # El reparto vertical debe dejar sitio a cabecera y tarjetas en cualquier tamaño.
+    for ancho, alto in ((1000, 560), (1400, 700), (1800, 900)):
+        opciones.ancho_px, opciones.alto_px = ancho, alto
+        reservado = (chart.MARGEN_FIGURA_PX + opciones.alto_cabecera(True)
+                     + chart.HUECO_TITULO_PX + chart.MARGEN_INFERIOR_PX
+                     + opciones.alto_indicadores() + chart.HUECO_INDICADORES_PX)
+        comprobar(reservado < alto * 0.55,
+                  f"a {ancho}x{alto} la decoración deja sitio a la curva",
+                  f"{reservado:.0f} px de {alto}")
+        comprobar(bool(chart.generar(datos.ev, opciones, titulo=datos.nombre)),
+                  f"se renderiza a {ancho}x{alto}")
+
+    opciones.mostrar_indicadores = False
+    comprobar(opciones.alto_indicadores() == 0,
+              "al desactivarlos, no se reserva espacio para las tarjetas")
+
+
+def prueba_actualizar_bd(carpeta: Path) -> None:
+    print("\n9. Actualizar una BD existente sin perder datos")
+    import crear_bd
+
+    destino = carpeta / "BD_usuario.xlsx"
+    crear_bd.construir(destino, None)
+
+    # Simula la BD de un usuario: con sus datos y sin los parámetros nuevos
+    wb = load_workbook(destino)
+    wb["Proyectos"].cell(row=2, column=1, value="W51-2026-D04-7951")
+    wb["Proyectos"].cell(row=2, column=4, value="L:" + chr(92) + "5_Proyectos")
+    wb["Destinatarios"].cell(row=2, column=1, value="W51-2026-D04-7951")
+    wb["Destinatarios"].cell(row=2, column=3, value="alguien@cliente.com")
+    ws = wb["SMTP"]
+    for r in range(1, (ws.max_row or 1) + 1):
+        if ws.cell(row=r, column=1).value == "Contraseña":
+            ws.cell(row=r, column=2, value="secreto")
+    ws = wb["Config"]
+    for r in range(1, (ws.max_row or 1) + 1):
+        if ws.cell(row=r, column=1).value == "Ancho imagen en el correo":
+            ws.delete_rows(r); break
+    wb.save(destino); wb.close()
+
+    anadidos = crear_bd.actualizar(destino)
+    comprobar(any("Ancho imagen en el correo" in a for a in anadidos),
+              "añade el parámetro que faltaba", "; ".join(anadidos) or "ninguno")
+
+    base = modulo_bd.cargar(destino)
+    comprobar(len(base.proyectos) == 1 and base.proyectos[0].codigo == "W51-2026-D04-7951",
+              "conserva el proyecto del usuario")
+    comprobar(base.proyectos[0].ruta.startswith("L:"), "conserva su ruta de red",
+              base.proyectos[0].ruta)
+    comprobar([d.correo for d in base.destinatarios] == ["alguien@cliente.com"],
+              "conserva sus destinatarios")
+    comprobar(base.smtp.contrasena == "secreto", "conserva su contraseña SMTP")
+    comprobar(base.cfg("Ancho imagen en el correo") == "100%",
+              "el parámetro nuevo queda con su valor por defecto")
+    comprobar(crear_bd.actualizar(destino) == [],
+              "ejecutarlo dos veces no duplica nada")
+
+
+def prueba_ancho_grafico() -> None:
+    print("\n10. Ancho de la Curva S en el correo")
+    cid = email_builder.CID_GRAFICO
+    canonico = (
+        f'<p><img src="cid:{cid}" width="100%" alt="Curva S del proyecto"></p>'
+        f'<p><img src="cid:{email_builder.CID_FIRMA}" width="330" alt="Firma"></p>'
+        '<table width="100%"><tr><td>x</td></tr></table>'
+    )
+
+    vista = email_builder.ancho_para_vista(canonico, 900)
+    comprobar('width="900"' in vista and "100%" not in vista.split("</p>")[0],
+              "la vista previa recibe píxeles, que es lo único que Qt entiende")
+    comprobar('width="330"' in vista, "la firma conserva su ancho fijo")
+    comprobar('<table width="100%"' in vista, "el 100% de la tabla no se toca")
+
+    vuelta = email_builder.ancho_para_correo(vista, "100%")
+    comprobar('width="100%"' in vuelta.split("</p>")[0],
+              "al enviar se restaura el 100%, igual que la tabla")
+    comprobar('width="330"' in vuelta, "la firma sigue intacta tras el ida y vuelta")
+
+    # Qt reescribe la etiqueta: reordena atributos, la cierra con /> y anade height
+    como_qt = (
+        f'<p><img src="cid:{cid}" alt="Curva S del proyecto" width="900" '
+        'height="450" style="width:900px; height:450px; float:none;" /></p>'
+    )
+    corregido = email_builder.ancho_para_correo(como_qt, "100%")
+    comprobar('width="100%"' in corregido, "reconoce la etiqueta reescrita por Qt")
+    comprobar("height=" not in corregido and "height:" not in corregido,
+              "quita el alto fijo, que deformaría la imagen al 100%")
+    comprobar("width:900px" not in corregido, "limpia el ancho que quedaba en el style")
+    comprobar("float:none" in corregido, "conserva el resto del style")
+
+    # Con un ancho configurado en pixeles no hay nada que convertir
+    en_px = f'<p><img src="cid:{cid}" width="1200" alt="Curva S"></p>'
+    comprobar(email_builder.ancho_para_vista(en_px, 900) == en_px,
+              "si ya está en píxeles, la vista previa lo deja tal cual")
+    comprobar('width="1200"' in email_builder.ancho_para_correo(en_px, "1200"),
+              "y el correo respeta ese mismo valor")
+
+
 def prueba_correo(datos) -> None:
-    print("\n8. Armado del correo")
+    print("\n11. Armado del correo")
     if datos is None:
         comprobar(False, "no se puede probar sin datos del archivo modelo")
         return
@@ -317,12 +441,21 @@ def prueba_correo(datos) -> None:
     comprobar("{" not in asunto, "no quedan comodines sin reemplazar")
 
     html = email_builder.construir_html(base, datos, entregables)
+    comprobar("Avance Planificado:" not in html,
+              "por defecto los 4 indicadores ya no se repiten como texto")
+    base.config[normalizar("Mostrar indicadores en el texto")] = "Sí"
+    html_con = email_builder.construir_html(base, datos, entregables)
+    comprobar("<b>Avance Planificado:</b> 60%" in html_con,
+              "activando el parámetro, la lista vuelve al cuerpo del correo")
+    base.config[normalizar("Mostrar indicadores en el texto")] = "No"
+
     comprobar(html.count("<tr>") == len(entregables) + 1,
               "la tabla trae encabezado + una fila por entregable",
               f"{html.count('<tr>')} filas")
     comprobar("cid:curva_s" in html, "la Curva S se referencia como imagen incrustada")
+    comprobar('width="100%"' in html.split("cid:curva_s")[1][:60],
+              "la Curva S se muestra al 100%, como la tabla")
     comprobar("Semana 15" in html, "el texto menciona la semana correcta")
-    comprobar("<b>Avance Planificado:</b> 60%" in html, "bullet de avance planificado")
 
     texto = email_builder.a_texto_plano(html)
     comprobar("Estimados ingenieros" in texto and "<" not in texto,
@@ -358,6 +491,9 @@ def main() -> int:
         prueba_mapeo_explicito(ruta_movida)
         prueba_etiquetas_curva(datos)
         prueba_dias_espera(datos)
+        prueba_cabecera_e_indicadores(datos)
+        prueba_actualizar_bd(carpeta)
+        prueba_ancho_grafico()
         prueba_correo(datos)
 
     fallos = [t for ok, t, _ in _resultados if not ok]

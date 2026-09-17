@@ -27,6 +27,17 @@ function Invocar($descripcion, $bloque) {
     }
 }
 
+function CopiarVerificado($origen, $destino) {
+    # Copy-Item falla en silencio si el destino esta bloqueado (abierto en Excel).
+    Copy-Item -Force $origen $destino -ErrorAction SilentlyContinue
+    $o = Get-Item $origen
+    $d = Get-Item $destino -ErrorAction SilentlyContinue
+    if (-not $d -or $d.Length -ne $o.Length) {
+        throw ("No se pudo copiar '$origen' a '$destino'. Si ese archivo esta abierto " +
+               "en Excel o en otro programa, cierralo y vuelve a intentarlo.")
+    }
+}
+
 Write-Host "== App Alertas: preparar entrega ==" -ForegroundColor Cyan
 
 # --- version --------------------------------------------------------------- #
@@ -67,6 +78,8 @@ $destino = "entrega\$nombre"
 Remove-Item -Recurse -Force $destino -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $destino | Out-Null
 
+try {
+
 Write-Host "Copiando el programa ..."
 if ($Carpeta) {
     Copy-Item -Recurse -Force "dist\App Alertas\*" $destino
@@ -85,7 +98,7 @@ Invocar "No se pudo generar la plantilla de base de datos" {
 }
 
 Write-Host "Copiando la documentacion ..."
-Copy-Item -Force "README.md" "$destino\LEEME.md"
+CopiarVerificado "README.md" "$destino\LEEME.md"
 # Se reescribe con BOM para que el Bloc de notas muestre bien los acentos.
 Get-Content "recursos\PRIMEROS PASOS.txt" -Encoding UTF8 |
     Out-File "$destino\PRIMEROS PASOS.txt" -Encoding utf8
@@ -94,6 +107,16 @@ Get-Content "recursos\PRIMEROS PASOS.txt" -Encoding UTF8 |
 Write-Host "Revisando que no se filtren datos de este equipo ..."
 Invocar "La revision de la entrega encontro problemas" {
     python revisar_entrega.py "$destino"
+}
+
+}
+catch {
+    # Una carpeta incompleta es peor que ninguna: se puede confundir con una
+    # entrega valida y enviarse sin base de datos ni manual.
+    Remove-Item -Recurse -Force $destino -ErrorAction SilentlyContinue
+    Write-Host ""
+    Write-Host "Se canceló la entrega y se borró la carpeta incompleta." -ForegroundColor Yellow
+    throw
 }
 
 # --- comprimir --------------------------------------------------------------- #

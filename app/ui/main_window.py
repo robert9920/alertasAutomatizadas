@@ -184,7 +184,8 @@ class VentanaPrincipal(QMainWindow):
         # -- panel derecho --------------------------------------------------- #
         self.panel_envio = PanelEnvio()
         self.panel_envio.enviar_solicitado.connect(self._enviar)
-        self.panel_envio.regenerar_solicitado.connect(lambda: self._regenerar(True))
+        self.panel_envio.regenerar_solicitado.connect(
+            lambda: self._regenerar(preguntar=True, ir_a_correo=True))
         self.panel_envio.guardar_borrador_solicitado.connect(self._guardar_borrador)
         derecha = QWidget()
         disposicion = QVBoxLayout(derecha)
@@ -425,7 +426,7 @@ class VentanaPrincipal(QMainWindow):
         else:
             self.panel_envio.establecer_aviso("")
 
-        self._regenerar(preguntar=False)
+        self._regenerar(preguntar=False, ir_a_correo=True)
         self.estado.showMessage(
             f"{datos.proyecto.codigo} · semana {datos.ev.semana_corte or '-'} · "
             f"{len(datos.let.entregables)} filas leídas en {datos.let.hoja}"
@@ -439,7 +440,9 @@ class VentanaPrincipal(QMainWindow):
             return
         self._regenerar(preguntar=True)
 
-    def _regenerar(self, preguntar: bool = True) -> None:
+    def _regenerar(self, preguntar: bool = True, ir_a_correo: bool = False) -> None:
+        """Rehace el correo. Solo cambia de pestana si la accion lo justifica:
+        al abrir un proyecto o al pulsar «Regenerar», nunca al tocar un filtro."""
         if self.datos is None or self.bd is None:
             return
         if preguntar and self.editor.editado:
@@ -459,14 +462,21 @@ class VentanaPrincipal(QMainWindow):
             incluir_grafico=self.png is not None,
             incluir_firma=self.firma is not None,
         )
-        self.editor.establecer_html(html, {
-            email_builder.CID_GRAFICO: self.png,
-            email_builder.CID_FIRMA: self.firma,
-        })
+        # Qt no sabe renderizar porcentajes en imagenes: la vista previa recibe
+        # el equivalente en pixeles y se restaura el valor al enviar.
+        self.editor.establecer_html(
+            email_builder.ancho_para_vista(html, self.editor.ancho_util()),
+            {
+                email_builder.CID_GRAFICO: self.png,
+                email_builder.CID_FIRMA: self.firma,
+            },
+        )
         self.panel_envio.asunto.setText(
             email_builder.construir_asunto(self.bd, self.datos, entregables)
         )
         self.panel_envio.asunto.setCursorPosition(0)
+        if ir_a_correo:
+            self.editor.mostrar_correo()
 
     # ------------------------------------------------------------------ #
     # Envio
@@ -477,7 +487,10 @@ class VentanaPrincipal(QMainWindow):
         para, cc, cco = self.panel_envio.destinatarios()
         if self.bd.smtp.cco_fijo and self.bd.smtp.cco_fijo not in cco:
             cco.append(self.bd.smtp.cco_fijo)
-        html = self.editor.html()
+        html = email_builder.ancho_para_correo(
+            self.editor.html(),
+            self.bd.cfg("Ancho imagen en el correo"),
+        )
         return sender.Envio(
             asunto=self.panel_envio.asunto.text().strip(),
             html=html,

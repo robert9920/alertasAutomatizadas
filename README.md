@@ -170,10 +170,19 @@ Está dividida en secciones. Cada parámetro lleva su ayuda en la tercera column
 | **Gráfico · tamaños de letra** | Etiquetas de las líneas y de las barras, porcentajes de cada eje Y, semanas y meses del eje X, leyenda y título. |
 | **Gráfico · colores de las series** | Las 3 líneas acumuladas y las 3 barras semanales. |
 | **Gráfico · colores de las etiquetas** | Las 6 por separado. |
-| **Gráfico · eje X y título** | Fondo y texto de los recuadros de semanas y meses, y color del título. |
-| **Correo · tabla de entregables** | Color del encabezado, color del encabezado de estatus y decimales de los indicadores. |
+| **Gráfico · eje X** | Fondo y texto de los recuadros de semanas y meses. |
+| **Gráfico · cabecera e indicadores** | Subtítulo, colores de la banda superior, si se muestran los cuatro indicadores, su fondo y el marco del gráfico. |
+| **Correo · tabla de entregables** | Color del encabezado, color del encabezado de estatus, decimales de los indicadores y si los cuatro indicadores se repiten como texto. |
 | **Correo · firma** | Ruta de la firma y ancho con el que se inserta. |
 | **Aplicación** | Tema claro u oscuro. |
+
+> **Resolución y ancho no son lo mismo.** `Ancho gráfico px` y `Alto gráfico px` definen la
+> **resolución** del PNG: su nitidez y su proporción. El espacio que ocupa dentro del correo
+> lo decide `Ancho imagen en el correo`, que por defecto vale `100%` para que el gráfico
+> termine exactamente donde termina la tabla de entregables, se abra la ventana del cliente
+> como se abra. Si prefieres un ancho fijo, escribe ahí un número de píxeles.
+>
+> Subir solo la resolución hace la imagen más nítida, **no más ancha**.
 
 Dos convenios importantes:
 
@@ -218,6 +227,33 @@ cerrar la aplicación.
 - **Días de espera** = hoy − `FECHA ÚLTIMO ENVÍO A CLIENTE`, en días de calendario. Se
   calcula al generar el correo, no al leer el Excel, así que sigue siendo correcto aunque
   la aplicación lleve días abierta. Sin fecha de envío, la celda queda vacía.
+
+### Cómo está compuesto el gráfico
+
+De arriba abajo: **banda con el color corporativo** (`#C32025`) con el nombre del proyecto y
+el subtítulo, el área de trazado con la curva y sus dos bandas de semanas y meses, y una
+fila con los **cuatro indicadores** — Avance Planificado, Avance Real, Desviación y SPI.
+
+Los indicadores salen de los mismos datos que el resto del correo, así que la imagen y el
+texto no pueden discrepar. La desviación se pinta en rojo cuando es negativa y el SPI
+cuando baja de 0,95, igual que en la pestaña «Datos y filtros».
+
+Todo el reparto vertical se calcula en píxeles: al subir `Alto gráfico px` o el tamaño de
+letra, la banda y los indicadores se reajustan sin descuadrar la curva. La banda y la fila
+de indicadores ocupan todo el ancho; el área de trazado reserva su margen derecho para la
+leyenda.
+
+En el correo el gráfico se inserta al `100%`, igual que la tabla, así que los dos terminan
+en la misma vertical. El editor de la aplicación no sabe renderizar porcentajes en
+imágenes, de modo que la vista previa lo muestra ajustado al ancho del editor y el valor se
+restaura al enviar o al guardar el `.eml`. Si cambias el tamaño de la ventana, la vista
+previa conserva el ancho anterior hasta que vuelvas a generar el correo; lo que recibe el
+cliente no se ve afectado.
+
+Como los indicadores ya se ven en la imagen, la lista de viñetas «Avance del Proyecto» **no
+se incluye en el cuerpo del correo**. Si prefieres tenerla también en texto (por ejemplo
+porque algún destinatario bloquea las imágenes), pon `Mostrar indicadores en el texto` en
+`Sí`.
 
 ### Etiquetas de la Curva S
 

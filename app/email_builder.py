@@ -19,7 +19,11 @@ from .constantes import COLUMNAS_CORREO
 CID_GRAFICO = "curva_s"
 CID_FIRMA = "firma"
 FUENTE = "Calibri, Arial, sans-serif"
-ANCHO_IMAGEN = 940
+
+# Ancho con el que se MUESTRA la Curva S en el correo, que no tiene nada que ver
+# con la resolucion del PNG. "100%" hace que ocupe lo mismo que la tabla de
+# entregables, que tambien va al 100%.
+ANCHO_IMAGEN = "100%"
 
 _FORMATOS_FECHA = [
     ("yyyy", "%Y"), ("yy", "%y"),
@@ -136,21 +140,28 @@ def construir_html(bd, datos, entregables: list, incluir_grafico: bool = True,
         _parrafo(rellenar(bd.txt("Saludo"), ctx)),
         _parrafo(rellenar(bd.txt("Párrafo intro"), ctx)),
         _parrafo(rellenar(bd.txt("Párrafo Curva S"), ctx)),
-        '<p style="margin:14px 0 6px 0;"><b><i><u>'
-        + html.escape(rellenar(bd.txt("Título Avance"), ctx))
-        + "</u></i></b></p>",
-        '<ul style="margin:0 0 12px 0;">',
-        f'<li><b>Avance Planificado:</b> {ctx["avance_planificado"]}</li>',
-        f'<li><b>Avance Real:</b> {ctx["avance_real"]}</li>',
-        f'<li><b>Desviación:</b> {ctx["desviacion"]}</li>',
-        f'<li><b>SPI:</b> {ctx["spi"]}</li>',
-        "</ul>",
     ]
 
+    # Los cuatro indicadores ya salen dentro del grafico, asi que por defecto no
+    # se repiten como lista. Quien los prefiera tambien en texto lo activa en Config.
+    if bd.cfg_bool("Mostrar indicadores en el texto", False):
+        partes += [
+            '<p style="margin:14px 0 6px 0;"><b><i><u>'
+            + html.escape(rellenar(bd.txt("Título Avance"), ctx))
+            + "</u></i></b></p>",
+            '<ul style="margin:0 0 12px 0;">',
+            f'<li><b>Avance Planificado:</b> {ctx["avance_planificado"]}</li>',
+            f'<li><b>Avance Real:</b> {ctx["avance_real"]}</li>',
+            f'<li><b>Desviación:</b> {ctx["desviacion"]}</li>',
+            f'<li><b>SPI:</b> {ctx["spi"]}</li>',
+            "</ul>",
+        ]
+
     if incluir_grafico:
+        ancho = bd.cfg("Ancho imagen en el correo") or ANCHO_IMAGEN
         partes.append(
             f'<p style="margin:0 0 14px 0;"><img src="cid:{CID_GRAFICO}" '
-            f'width="{ANCHO_IMAGEN}" alt="Curva S del proyecto"></p>'
+            f'width="{ancho}" alt="Curva S del proyecto"></p>'
         )
 
     partes += [
@@ -195,6 +206,78 @@ def a_texto_plano(html_correo: str) -> str:
     texto = re.sub(r"[ \t]+\n", "\n", texto)
     texto = re.sub(r"\n{3,}", "\n\n", texto)
     return texto.strip()
+
+
+# --------------------------------------------------------------------------- #
+# Ancho de la Curva S: el correo y la vista previa necesitan valores distintos
+#
+# Outlook renderiza `width="100%"` sin problema, pero el motor de texto de Qt no
+# entiende porcentajes en imagenes (devuelve un ancho de -2 px y colapsa el
+# documento). Por eso la vista previa recibe pixeles y se restaura el valor
+# configurado justo antes de enviar.
+# --------------------------------------------------------------------------- #
+_RE_IMG = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
+_RE_ATRIBUTO_WIDTH = re.compile(r'\swidth\s*=\s*"([^"]*)"', re.IGNORECASE)
+_RE_ATRIBUTO_HEIGHT = re.compile(r'\sheight\s*=\s*"[^"]*"', re.IGNORECASE)
+_RE_ATRIBUTO_STYLE = re.compile(r'\sstyle\s*=\s*"([^"]*)"', re.IGNORECASE)
+_RE_DIMENSION_EN_STYLE = re.compile(
+    r"(?:max-|min-)?(?:width|height)\s*:[^;]*;?", re.IGNORECASE
+)
+
+
+def _limpiar_estilo(coincidencia: re.Match) -> str:
+    """Quita del `style` cualquier ancho o alto: manda el atributo width."""
+    cuerpo = _RE_DIMENSION_EN_STYLE.sub("", coincidencia.group(1))
+    cuerpo = re.sub(r"\s*;\s*", "; ", cuerpo).strip().strip(";").strip()
+    return f' style="{cuerpo}"' if cuerpo else ""
+
+
+def _fijar_ancho(etiqueta: str, ancho: str) -> str:
+    """Deja la etiqueta <img> con ese ancho y sin alto, para no deformarla.
+
+    Qt reescribe la etiqueta al guardar el documento (reordena los atributos, la
+    cierra con /> y anade un `height` fijo); si ese alto sobreviviera, Outlook
+    dibujaria la imagen al 100% de ancho pero con la altura antigua.
+    """
+    nueva = _RE_ATRIBUTO_WIDTH.sub("", etiqueta)
+    nueva = _RE_ATRIBUTO_HEIGHT.sub("", nueva)
+    nueva = _RE_ATRIBUTO_STYLE.sub(_limpiar_estilo, nueva)
+    return re.sub(r"^<img\b", f'<img width="{ancho}"', nueva, count=1, flags=re.IGNORECASE)
+
+
+def _ancho_actual(etiqueta: str) -> str:
+    encontrado = _RE_ATRIBUTO_WIDTH.search(etiqueta)
+    return encontrado.group(1).strip() if encontrado else ""
+
+
+def _reescribir_grafico(html: str, funcion) -> str:
+    """Aplica `funcion` solo a la etiqueta <img> de la Curva S."""
+    def reemplazo(coincidencia: re.Match) -> str:
+        etiqueta = coincidencia.group(0)
+        if f"cid:{CID_GRAFICO}" not in etiqueta:
+            return etiqueta
+        return funcion(etiqueta)
+
+    return _RE_IMG.sub(reemplazo, html)
+
+
+def ancho_para_vista(html: str, ancho_px: int) -> str:
+    """Porcentaje -> pixeles, porque Qt no sabe renderizar porcentajes.
+
+    Si el ancho configurado ya esta en pixeles no hay nada que convertir.
+    """
+    def convertir(etiqueta: str) -> str:
+        if not _ancho_actual(etiqueta).endswith("%"):
+            return etiqueta
+        return _fijar_ancho(etiqueta, str(max(int(ancho_px), 200)))
+
+    return _reescribir_grafico(html, convertir)
+
+
+def ancho_para_correo(html: str, ancho: str = ANCHO_IMAGEN) -> str:
+    """Devuelve a la Curva S el ancho configurado, antes de enviar o guardar."""
+    ancho = (ancho or ANCHO_IMAGEN).strip() or ANCHO_IMAGEN
+    return _reescribir_grafico(html, lambda etiqueta: _fijar_ancho(etiqueta, ancho))
 
 
 # --------------------------------------------------------------------------- #

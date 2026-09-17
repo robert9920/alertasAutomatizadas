@@ -25,6 +25,19 @@ function Invocar($descripcion, $bloque) {
     }
 }
 
+function CopiarVerificado($origen, $destino) {
+    # Copy-Item falla en silencio si el destino esta abierto en Excel, y la
+    # entrega se quedaria con la version anterior sin que nadie se entere.
+    Copy-Item -Force $origen $destino -ErrorAction SilentlyContinue
+    $o = Get-Item $origen
+    $d = Get-Item $destino -ErrorAction SilentlyContinue
+    if (-not $d -or $d.Length -ne $o.Length) {
+        throw ("No se pudo copiar '$origen' a '$destino'. " +
+               "Si ese archivo esta abierto en Excel o en otro programa, cierralo " +
+               "y vuelve a intentarlo.")
+    }
+}
+
 Write-Host "== App Alertas: empaquetado ==" -ForegroundColor Cyan
 
 if ($Limpiar) {
@@ -100,12 +113,20 @@ if (-not $Carpeta) {
     }
 }
 
-if (Test-Path "BD_Reportes.xlsx") {
-    Copy-Item -Force "BD_Reportes.xlsx" "$salida\BD_Reportes.xlsx"
+# La BD de dist es la configuracion real con la que se prueba el programa
+# (rutas, destinatarios y credenciales). No se sobrescribe nunca: solo se le
+# anaden los parametros que traiga la version nueva.
+if (Test-Path "$salida\BD_Reportes.xlsx") {
+    Write-Host "Actualizando la base de datos de dist (se conservan tus datos) ..."
+    Invocar "No se pudo actualizar la base de datos de dist" {
+        python crear_bd.py "$salida\BD_Reportes.xlsx" --actualizar
+    }
+} elseif (Test-Path "BD_Reportes.xlsx") {
+    CopiarVerificado "BD_Reportes.xlsx" "$salida\BD_Reportes.xlsx"
 } else {
-    python crear_bd.py "$salida\BD_Reportes.xlsx"
+    Invocar "No se pudo generar la base de datos" { python crear_bd.py "$salida\BD_Reportes.xlsx" }
 }
-Copy-Item -Force "README.md" "$salida\LEEME.md"
+CopiarVerificado "README.md" "$salida\LEEME.md"
 New-Item -ItemType Directory -Force -Path "$salida\logs" | Out-Null
 
 $exe = Get-Item "$salida\App Alertas.exe"

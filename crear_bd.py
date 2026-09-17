@@ -283,31 +283,133 @@ def construir(destino: Path, ruta_referencia: Path | None = None) -> Path:
         "aquí la ruta completa del archivo.", "App Alertas")
 
     destino.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(destino)
+    try:
+        wb.save(destino)
+    except OSError as exc:
+        # Lo habitual: el archivo esta abierto en Excel, que lo bloquea en exclusiva.
+        raise OSError(
+            f"No se pudo escribir en:\n  {destino}\n\n"
+            "Lo más probable es que ese archivo esté abierto en Excel. "
+            "Ciérralo y vuelve a intentarlo.\n"
+            f"Detalle del sistema: {exc}"
+        ) from exc
     return destino
+
+
+def actualizar(destino: Path) -> list[str]:
+    """Anade a una BD existente los parametros que falten, sin tocar los datos.
+
+    Cada version nueva puede traer parametros nuevos en Config, Plantilla o SMTP.
+    Regenerar el archivo borraria proyectos, destinatarios y credenciales, asi que
+    aqui solo se agregan las claves que faltan, con su valor por defecto.
+    """
+    from openpyxl import load_workbook
+
+    wb = load_workbook(destino)
+    anadidos: list[str] = []
+
+    for nombre, defectos, ayudas in (
+        ("Config", CONFIG_DEFECTO, AYUDA_CONFIG),
+        ("Plantilla", PLANTILLA_DEFECTO, AYUDA_PLANTILLA),
+        ("SMTP", SMTP_DEFECTO, AYUDA_SMTP),
+    ):
+        if nombre not in wb.sheetnames:
+            continue
+        ws = wb[nombre]
+        existentes = {
+            str(ws.cell(row=r, column=1).value).strip()
+            for r in range(1, (ws.max_row or 1) + 1)
+            if ws.cell(row=r, column=1).value
+        }
+        faltan = [c for c in defectos if c not in existentes]
+        if not faltan:
+            continue
+
+        fila = (ws.max_row or 1) + 2
+        celda = ws.cell(row=fila, column=1, value="PARÁMETROS NUEVOS DE ESTA VERSIÓN")
+        celda.font = Font(name="Segoe UI", size=10, bold=True, color=BLANCO)
+        celda.fill = PatternFill("solid", fgColor=AZUL)
+        for columna in (2, 3):
+            ws.cell(row=fila, column=columna).fill = PatternFill("solid", fgColor=AZUL)
+        fila += 1
+
+        for clave in faltan:
+            celda = ws.cell(row=fila, column=1, value=clave)
+            celda.font = Font(name="Segoe UI", size=10, bold=True)
+            celda.fill = RELLENO_PARAM
+            celda.border = BORDE
+            celda.alignment = Alignment(vertical="center")
+
+            celda = ws.cell(row=fila, column=2, value=defectos[clave])
+            celda.font = FUENTE_NORMAL
+            celda.border = BORDE
+            celda.alignment = Alignment(vertical="top", wrap_text=True)
+
+            celda = ws.cell(row=fila, column=3, value=ayudas.get(clave, ""))
+            celda.font = FUENTE_AYUDA
+            celda.border = BORDE
+            celda.alignment = Alignment(vertical="top", wrap_text=True)
+
+            anadidos.append(f"{nombre} · {clave}")
+            fila += 1
+
+    if anadidos:
+        try:
+            wb.save(destino)
+        except OSError as exc:
+            wb.close()
+            raise OSError(
+                f"No se pudo escribir en:\n  {destino}\n\n"
+                "Lo más probable es que ese archivo esté abierto en Excel. "
+                "Ciérralo y vuelve a intentarlo.\n"
+                f"Detalle del sistema: {exc}"
+            ) from exc
+    wb.close()
+    return anadidos
 
 
 def main() -> int:
     argumentos = [a for a in sys.argv[1:] if not a.startswith("--")]
     forzar = "--forzar" in sys.argv
     plantilla = "--plantilla" in sys.argv
+    solo_actualizar = "--actualizar" in sys.argv
     base = Path(__file__).resolve().parent
     destino = Path(argumentos[0]).resolve() if argumentos else base / NOMBRE_BD
+
+    if solo_actualizar:
+        if not destino.is_file():
+            print(f"No existe {destino}; nada que actualizar.")
+            return 1
+        try:
+            anadidos = actualizar(destino)
+        except OSError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        if anadidos:
+            print(f"Parámetros añadidos a {destino.name}:")
+            for clave in anadidos:
+                print(f"  + {clave}")
+        else:
+            print(f"{destino.name} ya tiene todos los parámetros de esta versión.")
+        return 0
 
     if destino.exists() and not forzar:
         print(f"Ya existe {destino}. Usa --forzar para reemplazarlo.")
         return 1
 
-    if plantilla:
-        # Base de datos limpia para entregar a otra persona: sin proyectos,
-        # sin destinatarios y sin credenciales de este equipo.
-        construir(destino, None)
-        print(f"Plantilla vacía creada en: {destino}")
-        return 0
-
-    referencia = base.parent / "Referencia"
-    construir(destino, referencia if referencia.is_dir() else None)
-    print(f"Base de datos creada en: {destino}")
+    try:
+        if plantilla:
+            # Base de datos limpia para entregar a otra persona: sin proyectos,
+            # sin destinatarios y sin credenciales de este equipo.
+            construir(destino, None)
+            print(f"Plantilla vacía creada en: {destino}")
+        else:
+            referencia = base.parent / "Referencia"
+            construir(destino, referencia if referencia.is_dir() else None)
+            print(f"Base de datos creada en: {destino}")
+    except OSError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 

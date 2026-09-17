@@ -18,14 +18,19 @@ matplotlib.use("Agg")
 
 from matplotlib.figure import Figure          # noqa: E402
 from matplotlib.lines import Line2D           # noqa: E402
-from matplotlib.patches import Patch, Rectangle  # noqa: E402
+from matplotlib.patches import FancyBboxPatch, Patch, Rectangle  # noqa: E402
 
 from .constantes import (                      # noqa: E402
+    COLOR_ALERTA,
     COLOR_BANDA_EJE_X,
     COLOR_BARRA_PREVISTO,
+    COLOR_CORPORATIVO,
+    COLOR_FONDO_INDICADOR,
     COLOR_LINEA_PREVISTO,
     COLOR_LINEA_REAL,
     COLOR_LINEA_TENDENCIA,
+    COLOR_MARCO_GRAFICO,
+    COLOR_OK,
     COLOR_TEXTO_EJE_X,
 )
 
@@ -46,7 +51,19 @@ AIRE_PX = 16                # separacion entre esas etiquetas y la leyenda
 MARGEN_DERECHO_PX = 14
 
 IZQUIERDA = 0.055
-ARRIBA_SIN_TITULO = 0.965
+
+# Reparto vertical de la decoracion, en pixeles. Al calcularlo asi, agrandar la
+# imagen o la letra reparte el espacio sin descuadrar nada.
+MARGEN_FIGURA_PX = 10
+HUECO_TITULO_PX = 14
+HUECO_INDICADORES_PX = 16
+MARGEN_INFERIOR_PX = 10
+RADIO_ESQUINA_PX = 9
+SEPARACION_TARJETAS_PX = 12
+ALTO_ACENTO_PX = 4
+
+# Umbral del SPI a partir del cual el indicador se considera en objetivo.
+SPI_OBJETIVO = 0.95
 
 # Dos cifras que difieran menos que esto se consideran la misma y se dibuja una.
 EPSILON_IGUAL = 0.05
@@ -75,7 +92,18 @@ class OpcionesGrafico:
     tam_semanas: float | None = None
     tam_meses: float | None = None
     tam_leyenda: float = 8.0
-    tam_titulo: float = 11.0
+    tam_titulo: float = 16.0
+    tam_subtitulo: float = 10.0
+    tam_kpi_titulo: float = 9.0
+    tam_kpi_valor: float = 20.0
+
+    # -- cabecera e indicadores -------------------------------------------- #
+    subtitulo: str = "CURVA S DE AVANCE DEL PROYECTO"
+    color_fondo_titulo: str = COLOR_CORPORATIVO
+    mostrar_indicadores: bool = True
+    color_fondo_indicador: str = COLOR_FONDO_INDICADOR
+    color_marco: str = COLOR_MARCO_GRAFICO
+    decimales: int = 0
 
     # -- colores de las series --------------------------------------------- #
     color_linea_previsto: str = COLOR_LINEA_PREVISTO
@@ -96,7 +124,7 @@ class OpcionesGrafico:
     # -- eje X y titulo ----------------------------------------------------- #
     color_banda: str = COLOR_BANDA_EJE_X
     color_texto_banda: str = COLOR_TEXTO_EJE_X
-    color_titulo: str = COLOR_LINEA_PREVISTO
+    color_titulo: str = "#FFFFFF"
 
     @classmethod
     def desde_bd(cls, bd) -> "OpcionesGrafico":
@@ -105,7 +133,7 @@ class OpcionesGrafico:
 
         return cls(
             ancho_px=bd.cfg_int("Ancho gráfico px", 1400),
-            alto_px=bd.cfg_int("Alto gráfico px", 520),
+            alto_px=bd.cfg_int("Alto gráfico px", 700),
             dpi=bd.cfg_int("DPI", 110),
             izq_min=bd.cfg_float("Eje Y izq mín", 0.0),
             izq_max=bd.cfg_float("Eje Y izq máx", 120.0),
@@ -120,7 +148,17 @@ class OpcionesGrafico:
             tam_semanas=bd.cfg_float_opcional("Tamaño eje X semanas"),
             tam_meses=bd.cfg_float_opcional("Tamaño eje X meses"),
             tam_leyenda=bd.cfg_float("Tamaño leyenda", 8.0),
-            tam_titulo=bd.cfg_float("Tamaño título gráfico", 11.0),
+            tam_titulo=bd.cfg_float("Tamaño título gráfico", 16.0),
+            tam_subtitulo=bd.cfg_float("Tamaño subtítulo gráfico", 10.0),
+            tam_kpi_titulo=bd.cfg_float("Tamaño título indicadores", 9.0),
+            tam_kpi_valor=bd.cfg_float("Tamaño valor indicadores", 20.0),
+
+            subtitulo=bd.cfg("Subtítulo gráfico"),
+            color_fondo_titulo=color("Color fondo título", COLOR_CORPORATIVO),
+            mostrar_indicadores=bd.cfg_bool("Mostrar indicadores en gráfico", True),
+            color_fondo_indicador=color("Color fondo indicadores", COLOR_FONDO_INDICADOR),
+            color_marco=color("Color marco gráfico", COLOR_MARCO_GRAFICO),
+            decimales=bd.cfg_int("Decimales avance", 0),
 
             color_linea_previsto=color("Color línea Previsto Acum", COLOR_LINEA_PREVISTO),
             color_linea_real=color("Color línea Real Acum", COLOR_LINEA_REAL),
@@ -138,8 +176,22 @@ class OpcionesGrafico:
 
             color_banda=color("Color bandas eje X", COLOR_BANDA_EJE_X),
             color_texto_banda=color("Color texto eje X", COLOR_TEXTO_EJE_X),
-            color_titulo=color("Color título gráfico", COLOR_LINEA_PREVISTO),
+            color_titulo=color("Color título gráfico", "#FFFFFF"),
         )
+
+    # -- alturas de la decoracion, en pixeles ------------------------------ #
+    def alto_cabecera(self, con_titulo: bool) -> float:
+        if not con_titulo:
+            return 0.0
+        alto = self.tam_titulo * 2.0 + 18
+        if self.subtitulo.strip():
+            alto += self.tam_subtitulo * 1.9
+        return alto
+
+    def alto_indicadores(self) -> float:
+        if not self.mostrar_indicadores:
+            return 0.0
+        return self.tam_kpi_titulo * 1.8 + self.tam_kpi_valor * 1.9 + 34
 
     # -- tamanos resueltos segun el numero de semanas ---------------------- #
     def letra_etiquetas_lineas(self, n: int) -> float:
@@ -235,6 +287,106 @@ def _cajas(ax, bloques: list[tuple[str, float, float]], tam_letra: float,
         )
 
 
+def _caja(lienzo, x, y, ancho, alto, relleno, borde=None, radio=RADIO_ESQUINA_PX,
+          grosor=1.0, zorder=1):
+    """Rectangulo de esquinas redondeadas en coordenadas de pixel."""
+    caja = FancyBboxPatch(
+        (x + radio, y + radio), ancho - 2 * radio, alto - 2 * radio,
+        boxstyle=f"round,pad={radio}",
+        facecolor=relleno, edgecolor=borde or "none",
+        linewidth=grosor if borde else 0, zorder=zorder,
+    )
+    lienzo.add_patch(caja)
+    return caja
+
+
+def _dibujar_cabecera(lienzo, opciones: OpcionesGrafico, titulo: str,
+                      arriba_px: float, alto_px: float) -> None:
+    """Banda superior con el nombre del proyecto y el subtitulo."""
+    izquierda = MARGEN_FIGURA_PX
+    ancho = opciones.ancho_px - 2 * MARGEN_FIGURA_PX
+    _caja(lienzo, izquierda, arriba_px - alto_px, ancho, alto_px,
+          relleno=opciones.color_fondo_titulo, zorder=2)
+
+    x_texto = izquierda + 22
+    subtitulo = opciones.subtitulo.strip()
+    if subtitulo:
+        lienzo.text(
+            x_texto, arriba_px - alto_px * 0.38, titulo,
+            ha="left", va="center", fontsize=opciones.tam_titulo,
+            color=opciones.color_titulo, fontweight="bold", zorder=3,
+        )
+        lienzo.text(
+            x_texto, arriba_px - alto_px * 0.74, subtitulo,
+            ha="left", va="center", fontsize=opciones.tam_subtitulo,
+            color=opciones.color_titulo, alpha=0.92, zorder=3,
+        )
+    else:
+        lienzo.text(
+            x_texto, arriba_px - alto_px / 2, titulo,
+            ha="left", va="center", fontsize=opciones.tam_titulo,
+            color=opciones.color_titulo, fontweight="bold", zorder=3,
+        )
+
+
+def _dibujar_indicadores(lienzo, opciones: OpcionesGrafico,
+                         tarjetas: list[tuple[str, str, str, str]],
+                         abajo_px: float, alto_px: float) -> None:
+    """Fila inferior de indicadores, a todo el ancho del grafico."""
+    izquierda = MARGEN_FIGURA_PX
+    total = opciones.ancho_px - 2 * MARGEN_FIGURA_PX
+    cantidad = len(tarjetas)
+    ancho = (total - SEPARACION_TARJETAS_PX * (cantidad - 1)) / cantidad
+
+    for i, (rotulo, valor, pie, color) in enumerate(tarjetas):
+        x = izquierda + i * (ancho + SEPARACION_TARJETAS_PX)
+        _caja(lienzo, x, abajo_px, ancho, alto_px,
+              relleno=opciones.color_fondo_indicador,
+              borde=opciones.color_marco, radio=RADIO_ESQUINA_PX, zorder=2)
+        # franja de color inferior, para identificar el indicador de un vistazo
+        lienzo.add_patch(Rectangle(
+            (x + RADIO_ESQUINA_PX, abajo_px + 2),
+            ancho - 2 * RADIO_ESQUINA_PX, ALTO_ACENTO_PX,
+            facecolor=color, edgecolor="none", zorder=3,
+        ))
+
+        centro = x + ancho / 2
+        lienzo.text(centro, abajo_px + alto_px - opciones.tam_kpi_titulo * 1.5,
+                    rotulo, ha="center", va="center",
+                    fontsize=opciones.tam_kpi_titulo, color=GRIS_TEXTO,
+                    fontweight="bold", zorder=4)
+        lienzo.text(centro, abajo_px + alto_px * 0.44, valor,
+                    ha="center", va="center", fontsize=opciones.tam_kpi_valor,
+                    color=color, fontweight="bold", zorder=4)
+        lienzo.text(centro, abajo_px + ALTO_ACENTO_PX + 12, pie,
+                    ha="center", va="center",
+                    fontsize=max(opciones.tam_kpi_titulo - 1.5, 5.5),
+                    color=GRIS_TEXTO, alpha=0.85, zorder=4)
+
+
+def _tarjetas_indicadores(datos_ev, opciones: OpcionesGrafico
+                          ) -> list[tuple[str, str, str, str]]:
+    """(rotulo, valor, pie, color) de los cuatro indicadores del proyecto."""
+    kpis = datos_ev.kpis(opciones.decimales)
+    semana = datos_ev.semana_corte
+    pie_semana = f"(Semana {semana[1:]})" if semana.upper().startswith("S") else f"({semana})"
+
+    desviacion = kpis["desviacion"]
+    color_desviacion = COLOR_ALERTA if desviacion.startswith("-") else COLOR_OK
+    try:
+        color_spi = COLOR_OK if float(kpis["spi"]) >= SPI_OBJETIVO else COLOR_ALERTA
+    except ValueError:
+        color_spi = GRIS_TEXTO
+
+    return [
+        ("AVANCE PLANIFICADO", kpis["avance_planificado"], pie_semana,
+         opciones.color_linea_previsto),
+        ("AVANCE REAL", kpis["avance_real"], pie_semana, opciones.color_linea_real),
+        ("DESVIACIÓN", desviacion, "(Real vs. Planificado)", color_desviacion),
+        ("SPI", kpis["spi"], "(Índice de programación)", color_spi),
+    ]
+
+
 def generar(datos_ev, opciones: OpcionesGrafico | None = None,
             titulo: str = "") -> bytes:
     """Devuelve el PNG de la Curva S."""
@@ -255,9 +407,18 @@ def generar(datos_ev, opciones: OpcionesGrafico | None = None,
         dpi=opciones.dpi,
         facecolor="white",
     )
-    fig.patch.set_edgecolor("#808080")
-    fig.patch.set_linewidth(1.0)
     matplotlib.rcParams["font.family"] = FUENTES
+
+    # Capa de fondo en pixeles: el marco, la cabecera y las tarjetas se dibujan
+    # aqui. Queda por debajo del area de trazado porque `ax` no pinta su fondo y
+    # es `ax2` quien tapa esta capa solo dentro de la curva.
+    lienzo = fig.add_axes((0, 0, 1, 1), zorder=-1)
+    lienzo.set_xlim(0, opciones.ancho_px)
+    lienzo.set_ylim(0, opciones.alto_px)
+    lienzo.axis("off")
+    _caja(lienzo, 1, 1, opciones.ancho_px - 2, opciones.alto_px - 2,
+          relleno="white", borde=opciones.color_marco, radio=RADIO_ESQUINA_PX + 3,
+          grosor=1.4, zorder=0)
 
     # El hueco de la derecha y el del titulo se calculan en pixeles y no como
     # fraccion fija: asi la leyenda nunca pisa las etiquetas del eje derecho y el
@@ -266,25 +427,36 @@ def generar(datos_ev, opciones: OpcionesGrafico | None = None,
     derecha = min(max(1 - reserva / opciones.ancho_px, 0.55), 0.90)
     ancla_leyenda = 1 - (ANCHO_LEYENDA_PX + MARGEN_DERECHO_PX) / opciones.ancho_px
 
-    if titulo.strip():
-        alto_titulo = opciones.tam_titulo * 2.4 + 6
-        arriba = min(max(1 - alto_titulo / opciones.alto_px, 0.70), ARRIBA_SIN_TITULO)
-    else:
-        arriba = ARRIBA_SIN_TITULO
+    # Reparto vertical, tambien en pixeles:
+    #   margen · cabecera · hueco · [trazado + bandas] · hueco · indicadores · margen
+    con_titulo = bool(titulo.strip())
+    alto_cabecera = opciones.alto_cabecera(con_titulo)
+    alto_kpis = opciones.alto_indicadores()
+
+    ocupado_arriba = MARGEN_FIGURA_PX + alto_cabecera + (HUECO_TITULO_PX if con_titulo else 0)
+    ocupado_abajo = MARGEN_INFERIOR_PX + alto_kpis + (
+        HUECO_INDICADORES_PX if opciones.mostrar_indicadores else 0
+    )
+    arriba = min(max(1 - ocupado_arriba / opciones.alto_px, 0.45), 0.985)
+    abajo = min(max(ocupado_abajo / opciones.alto_px, 0.02), 0.45)
 
     alto_banda = 0.055 if n <= 40 else 0.05
     gs = fig.add_gridspec(
         3, 1, height_ratios=[1, alto_banda, alto_banda], hspace=0.0,
-        left=IZQUIERDA, right=derecha, top=arriba, bottom=0.04,
+        left=IZQUIERDA, right=derecha, top=arriba, bottom=abajo,
     )
     ax = fig.add_subplot(gs[0, 0])
     ax2 = ax.twinx()
 
-    if titulo.strip():
-        fig.text(
-            (IZQUIERDA + derecha) / 2, (1 + arriba) / 2, titulo.strip(),
-            ha="center", va="center", fontsize=opciones.tam_titulo,
-            color=opciones.color_titulo, fontweight="bold",
+    if con_titulo:
+        _dibujar_cabecera(
+            lienzo, opciones, titulo.strip(),
+            arriba_px=opciones.alto_px - MARGEN_FIGURA_PX, alto_px=alto_cabecera,
+        )
+    if opciones.mostrar_indicadores:
+        _dibujar_indicadores(
+            lienzo, opciones, _tarjetas_indicadores(datos_ev, opciones),
+            abajo_px=MARGEN_INFERIOR_PX, alto_px=alto_kpis,
         )
 
     limites = (-0.6, n - 0.4)
@@ -411,11 +583,12 @@ def generar(datos_ev, opciones: OpcionesGrafico | None = None,
     # Se ancla el borde izquierdo de la leyenda: crezca lo que crezca el texto,
     # nunca invade la zona de las etiquetas del eje derecho.
     fig.legend(
-        handles=elementos, loc="center left", bbox_to_anchor=(ancla_leyenda, 0.55),
+        handles=elementos, loc="center left",
+        bbox_to_anchor=(ancla_leyenda, (arriba + abajo) / 2),
         frameon=False, fontsize=opciones.tam_leyenda,
         labelcolor=GRIS_TEXTO, handlelength=1.8,
     )
 
     buffer = io.BytesIO()
-    fig.savefig(buffer, format="png", facecolor="white", edgecolor="#808080")
+    fig.savefig(buffer, format="png", facecolor="white", edgecolor="none")
     return buffer.getvalue()

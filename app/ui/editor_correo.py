@@ -18,6 +18,10 @@ from ..email_builder import limpiar_html_editor
 
 TAMANOS = ["8", "9", "10", "11", "12", "14", "16", "18"]
 
+# Relleno de la "hoja" (QSS: 14px 18px), el margen del documento y la barra
+# de desplazamiento vertical. De menos, la imagen al 100% desbordaria.
+MARGEN_HOJA_PX = 58
+
 
 class EditorCorreo(QWidget):
     """Mantiene sincronizadas la vista visual y la vista HTML."""
@@ -205,7 +209,24 @@ class EditorCorreo(QWidget):
             self._cargando = False
         self._editado = False
         self._fuente = 0
+        # A proposito NO se cambia de pestana: cargar contenido no debe decidir
+        # que esta mirando el usuario. Quien llama decide si conviene mostrar
+        # el correo (ver `mostrar_correo`).
+
+    def mostrar_correo(self) -> None:
+        """Lleva la vista a la pestana del correo."""
         self.pestanas.setCurrentIndex(0)
+
+    def ancho_util(self) -> int:
+        """Ancho aprovechable de la hoja, para ajustar las imagenes al 100%.
+
+        Qt no entiende porcentajes en imagenes, asi que la vista previa necesita
+        el equivalente en pixeles.
+        """
+        ancho = self.visual.viewport().width()
+        if ancho <= 0:                       # la ventana aun no se ha mostrado
+            ancho = max(self.width(), 900)
+        return max(ancho - MARGEN_HOJA_PX, 320)
 
     def agregar_pestana(self, widget: QWidget, titulo: str) -> int:
         """Permite a la ventana principal colgar aqui otras vistas."""
