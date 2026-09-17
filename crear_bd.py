@@ -132,6 +132,26 @@ def _validacion(ws, formula: str, rango: str, titulo: str, mensaje: str) -> None
     dv.add(rango)
 
 
+def _ajustes_config(ws, filas: dict[str, int]) -> None:
+    """Listas desplegables y notas de la hoja Config, segun donde haya caido cada clave."""
+    for clave, opciones, titulo, mensaje in (
+        ("Mostrar etiquetas de datos", '"Sí,No"', "Etiquetas",
+         "Mostrar el % sobre puntos y barras."),
+        ("Semanas a mostrar", '"Todas,Hasta semana de corte"', "Semanas",
+         "Rango del eje X."),
+        ("Tema", '"Claro,Oscuro"', "Tema", "Apariencia de la aplicación."),
+    ):
+        if clave in filas:
+            _validacion(ws, opciones, f"B{filas[clave]}", titulo, mensaje)
+
+    if "Ruta firma" in filas:
+        ws.cell(row=filas["Ruta firma"], column=2).comment = Comment(
+            "Deja esto vacío y guarda tu firma como firma.png en la misma carpeta "
+            "que App Alertas.exe: la aplicación la encuentra sola.\n\n"
+            "Si la tienes en otro sitio (por ejemplo una carpeta de red), escribe "
+            "aquí la ruta completa del archivo.", "App Alertas")
+
+
 # --------------------------------------------------------------------------- #
 def construir(destino: Path, ruta_referencia: Path | None = None) -> Path:
     wb = Workbook()
@@ -265,22 +285,7 @@ def construir(destino: Path, ruta_referencia: Path | None = None) -> Path:
     filas = _hoja_parametros(wb, "Config", CONFIG_DEFECTO, AYUDA_CONFIG,
                              ancho_valor=24, secciones=SECCIONES_CONFIG)
 
-    ws = wb["Config"]
-    for clave, opciones, titulo, mensaje in (
-        ("Mostrar etiquetas de datos", '"Sí,No"', "Etiquetas",
-         "Mostrar el % sobre puntos y barras."),
-        ("Semanas a mostrar", '"Todas,Hasta semana de corte"', "Semanas",
-         "Rango del eje X."),
-        ("Tema", '"Claro,Oscuro"', "Tema", "Apariencia de la aplicación."),
-    ):
-        if clave in filas:
-            _validacion(ws, opciones, f"B{filas[clave]}", titulo, mensaje)
-
-    ws.cell(row=filas["Ruta firma"], column=2).comment = Comment(
-        "Deja esto vacío y guarda tu firma como firma.png en la misma carpeta "
-        "que App Alertas.exe: la aplicación la encuentra sola.\n\n"
-        "Si la tienes en otro sitio (por ejemplo una carpeta de red), escribe "
-        "aquí la ruta completa del archivo.", "App Alertas")
+    _ajustes_config(wb["Config"], filas)
 
     destino.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -296,64 +301,84 @@ def construir(destino: Path, ruta_referencia: Path | None = None) -> Path:
     return destino
 
 
+# --------------------------------------------------------------------------- #
+# Actualizacion de una BD existente
+# --------------------------------------------------------------------------- #
+# Rotulo que escribian las versiones anteriores al anadir los parametros nuevos
+# al final de la hoja. Se reconoce para poder descartarlo al rehacerla.
+ROTULO_ANTIGUO = "PARÁMETROS NUEVOS DE ESTA VERSIÓN"
+
+HOJAS_PARAMETROS = (
+    # nombre, valores por defecto, ayudas, ancho de la columna Valor, secciones
+    ("SMTP", SMTP_DEFECTO, AYUDA_SMTP, 34, None),
+    ("Plantilla", PLANTILLA_DEFECTO, AYUDA_PLANTILLA, 86, None),
+    ("Config", CONFIG_DEFECTO, AYUDA_CONFIG, 24, SECCIONES_CONFIG),
+)
+
+
+def _leer_parametros(ws, secciones: dict[str, str] | None) -> dict[str, str]:
+    """Pares parametro/valor de una hoja, saltando los titulos de seccion.
+
+    Un titulo de seccion ocupa solo la columna A; lo mismo el rotulo que dejaban
+    las versiones anteriores. Se descartan por su texto, que es conocido.
+    """
+    titulos = set((secciones or {}).values()) | {ROTULO_ANTIGUO}
+    valores: dict[str, str] = {}
+    for fila in range(2, (ws.max_row or 1) + 1):
+        clave = ws.cell(row=fila, column=1).value
+        if clave is None:
+            continue
+        clave = str(clave).strip()
+        if not clave or clave in titulos:
+            continue
+        valor = ws.cell(row=fila, column=2).value
+        valores[clave] = "" if valor is None else str(valor)
+    return valores
+
+
 def actualizar(destino: Path) -> list[str]:
-    """Anade a una BD existente los parametros que falten, sin tocar los datos.
+    """Pone al dia una BD existente conservando lo que el usuario tenga escrito.
 
     Cada version nueva puede traer parametros nuevos en Config, Plantilla o SMTP.
-    Regenerar el archivo borraria proyectos, destinatarios y credenciales, asi que
-    aqui solo se agregan las claves que faltan, con su valor por defecto.
+    Regenerar el archivo entero borraria proyectos, destinatarios y credenciales,
+    asi que solo se rehacen las tres hojas de parametros: se leen los valores
+    actuales, se vuelven a escribir en el orden y las secciones que manda esta
+    version, y los que falten entran con su valor por defecto **en su sitio**, no
+    en un bloque al final. Las hojas de datos no se tocan.
     """
     from openpyxl import load_workbook
 
     wb = load_workbook(destino)
     anadidos: list[str] = []
+    retocadas: list[str] = []
 
-    for nombre, defectos, ayudas in (
-        ("Config", CONFIG_DEFECTO, AYUDA_CONFIG),
-        ("Plantilla", PLANTILLA_DEFECTO, AYUDA_PLANTILLA),
-        ("SMTP", SMTP_DEFECTO, AYUDA_SMTP),
-    ):
+    for nombre, defectos, ayudas, ancho, secciones in HOJAS_PARAMETROS:
         if nombre not in wb.sheetnames:
             continue
-        ws = wb[nombre]
-        existentes = {
-            str(ws.cell(row=r, column=1).value).strip()
-            for r in range(1, (ws.max_row or 1) + 1)
-            if ws.cell(row=r, column=1).value
-        }
-        faltan = [c for c in defectos if c not in existentes]
-        if not faltan:
+        actuales = _leer_parametros(wb[nombre], secciones)
+        # Lo que el usuario haya anadido por su cuenta se respeta, al final.
+        propios = {c: v for c, v in actuales.items() if c not in defectos}
+        valores = {c: actuales.get(c, d) for c, d in defectos.items()}
+        faltan = [c for c in defectos if c not in actuales]
+
+        # Se rehace la hoja tambien cuando estan todos los parametros pero en otro
+        # orden: es el caso de las BD que actualizo una version anterior, que los
+        # dejaba amontonados al final en vez de en su seccion.
+        if not faltan and list(actuales) == list(valores) + list(propios):
             continue
 
-        fila = (ws.max_row or 1) + 2
-        celda = ws.cell(row=fila, column=1, value="PARÁMETROS NUEVOS DE ESTA VERSIÓN")
-        celda.font = Font(name="Segoe UI", size=10, bold=True, color=BLANCO)
-        celda.fill = PatternFill("solid", fgColor=AZUL)
-        for columna in (2, 3):
-            ws.cell(row=fila, column=columna).fill = PatternFill("solid", fgColor=AZUL)
-        fila += 1
+        indice = wb.sheetnames.index(nombre)
+        del wb[nombre]
+        filas = _hoja_parametros(wb, nombre, {**valores, **propios}, ayudas,
+                                 ancho_valor=ancho, secciones=secciones)
+        wb.move_sheet(nombre, offset=indice - wb.sheetnames.index(nombre))
+        if nombre == "Config":
+            _ajustes_config(wb[nombre], filas)
 
-        for clave in faltan:
-            celda = ws.cell(row=fila, column=1, value=clave)
-            celda.font = Font(name="Segoe UI", size=10, bold=True)
-            celda.fill = RELLENO_PARAM
-            celda.border = BORDE
-            celda.alignment = Alignment(vertical="center")
+        anadidos += [f"{nombre} · {c}" for c in faltan]
+        retocadas.append(nombre)
 
-            celda = ws.cell(row=fila, column=2, value=defectos[clave])
-            celda.font = FUENTE_NORMAL
-            celda.border = BORDE
-            celda.alignment = Alignment(vertical="top", wrap_text=True)
-
-            celda = ws.cell(row=fila, column=3, value=ayudas.get(clave, ""))
-            celda.font = FUENTE_AYUDA
-            celda.border = BORDE
-            celda.alignment = Alignment(vertical="top", wrap_text=True)
-
-            anadidos.append(f"{nombre} · {clave}")
-            fila += 1
-
-    if anadidos:
+    if retocadas:
         try:
             wb.save(destino)
         except OSError as exc:

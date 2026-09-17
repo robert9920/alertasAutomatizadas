@@ -328,6 +328,29 @@ def prueba_cabecera_e_indicadores(datos) -> None:
               "la desviación negativa se pinta en rojo")
     comprobar(colores["SPI"] == COLOR_ALERTA, "el SPI por debajo de 0,95 se pinta en rojo",
               valores["SPI"])
+    comprobar(colores["AVANCE PLANIFICADO"] == opciones.color_linea_previsto
+              and colores["AVANCE REAL"] == opciones.color_linea_real,
+              "sin configurar, las dos primeras tarjetas heredan el color de su línea")
+
+    # Los cuatro colores configurables mandan sobre el cálculo automático.
+    forzados = {
+        "Color valor Avance Planificado": "#111111",
+        "Color valor Avance Real": "#222222",
+        "Color valor Desviación": "#333333",
+        "Color valor SPI": "#444444",
+    }
+    for clave, valor in forzados.items():
+        base.config[normalizar(clave)] = valor
+    personalizadas = chart.OpcionesGrafico.desde_bd(base)
+    colores_p = {r: c for r, _, _, c in chart._tarjetas_indicadores(datos.ev, personalizadas)}
+    comprobar(
+        [colores_p["AVANCE PLANIFICADO"], colores_p["AVANCE REAL"],
+         colores_p["DESVIACIÓN"], colores_p["SPI"]] == list(forzados.values()),
+        "con un color escrito en Config, gana ese en las cuatro tarjetas",
+        " ".join(forzados.values()),
+    )
+    for clave in forzados:
+        base.config[normalizar(clave)] = ""
 
     # El reparto vertical debe dejar sitio a cabecera y tarjetas en cualquier tamaño.
     for ancho, alto in ((1000, 560), (1400, 700), (1800, 900)):
@@ -385,6 +408,54 @@ def prueba_actualizar_bd(carpeta: Path) -> None:
               "el parámetro nuevo queda con su valor por defecto")
     comprobar(crear_bd.actualizar(destino) == [],
               "ejecutarlo dos veces no duplica nada")
+
+    # El parámetro nuevo debe caer en su sección, igual que en una BD recién
+    # creada, y no en un bloque suelto al final de la hoja.
+    def orden_config(ruta: Path) -> list[str]:
+        hoja = load_workbook(ruta)["Config"]
+        titulos = set(crear_bd.SECCIONES_CONFIG.values()) | {crear_bd.ROTULO_ANTIGUO}
+        return [
+            str(hoja.cell(row=r, column=1).value).strip()
+            for r in range(2, (hoja.max_row or 1) + 1)
+            if hoja.cell(row=r, column=1).value
+            and str(hoja.cell(row=r, column=1).value).strip() not in titulos
+        ]
+
+    limpia = carpeta / "BD_limpia.xlsx"
+    crear_bd.construir(limpia, None)
+    comprobar(orden_config(destino) == orden_config(limpia),
+              "la hoja Config queda igual que en una base de datos recién creada")
+
+    hoja = load_workbook(destino)["Config"]
+    rotulos = [
+        str(hoja.cell(row=r, column=1).value or "").strip()
+        for r in range(1, (hoja.max_row or 1) + 1)
+    ]
+    comprobar(crear_bd.ROTULO_ANTIGUO not in rotulos,
+              "no queda el bloque «PARÁMETROS NUEVOS» al final")
+    comprobar(rotulos.index("Ancho imagen en el correo")
+              > rotulos.index(crear_bd.SECCIONES_CONFIG["Color encabezado tabla"]),
+              "el parámetro añadido cae dentro de su sección")
+
+    # Una BD que actualizó una versión anterior tiene todos los parámetros, pero
+    # amontonados al final. Volver a pasar --actualizar debe recolocarlos.
+    wb = load_workbook(destino)
+    ws = wb["Config"]
+    for r in range(2, (ws.max_row or 1) + 1):
+        if ws.cell(row=r, column=1).value == "Ancho imagen en el correo":
+            ws.delete_rows(r); break
+    fila = (ws.max_row or 1) + 2
+    ws.cell(row=fila, column=1, value=crear_bd.ROTULO_ANTIGUO)
+    ws.cell(row=fila + 1, column=1, value="Ancho imagen en el correo")
+    ws.cell(row=fila + 1, column=2, value="1200")
+    wb.save(destino); wb.close()
+
+    comprobar(crear_bd.actualizar(destino) == [],
+              "sobre una BD así no se añade nada: ya están todos")
+    comprobar(orden_config(destino) == orden_config(limpia),
+              "pero el parámetro vuelve a su sección")
+    comprobar(modulo_bd.cargar(destino).cfg("Ancho imagen en el correo") == "1200",
+              "conservando el valor que el usuario tenía escrito")
 
 
 def prueba_ancho_grafico() -> None:
@@ -456,6 +527,28 @@ def prueba_correo(datos) -> None:
     comprobar('width="100%"' in html.split("cid:curva_s")[1][:60],
               "la Curva S se muestra al 100%, como la tabla")
     comprobar("Semana 15" in html, "el texto menciona la semana correcta")
+
+    encabezado = html.split("<tr>")[1]
+    comprobar(encabezado.count("color:#000000;") == len(COLUMNAS_CORREO),
+              "por defecto las siete celdas del encabezado llevan su color de letra",
+              f"{encabezado.count('color:#000000;')} de {len(COLUMNAS_CORREO)}")
+
+    base.config[normalizar("Color texto encabezado tabla")] = "#FFFFFF"
+    base.config[normalizar("Color texto encabezado estatus")] = "#C32025"
+    encabezado = email_builder.construir_html(base, datos, entregables).split("<tr>")[1]
+    comprobar(encabezado.count("color:#FFFFFF;") == len(COLUMNAS_CORREO) - 1
+              and encabezado.count("color:#C32025;") == 1,
+              "el color de «ESTATUS DEL ENTREGABLE LC» se controla aparte del resto")
+    celda_estatus = encabezado.split("<td")[-1]
+    comprobar("color:#C32025;" in celda_estatus and "DÍAS DE ESPERA" not in celda_estatus,
+              "y es justo la última columna la que lo lleva")
+    base.config[normalizar("Color texto encabezado tabla")] = "#000000"
+    base.config[normalizar("Color texto encabezado estatus")] = "#000000"
+
+    antes_tabla = html.split("<table")[0]
+    comprobar(html.count(email_builder.ESPACIO_ANTES_TABLA) == 1
+              and antes_tabla.rstrip().endswith(email_builder.ESPACIO_ANTES_TABLA),
+              "hay un único espaciador y está justo antes de la tabla")
 
     texto = email_builder.a_texto_plano(html)
     comprobar("Estimados ingenieros" in texto and "<" not in texto,

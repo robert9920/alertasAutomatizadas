@@ -172,7 +172,8 @@ Está dividida en secciones. Cada parámetro lleva su ayuda en la tercera column
 | **Gráfico · colores de las etiquetas** | Las 6 por separado. |
 | **Gráfico · eje X** | Fondo y texto de los recuadros de semanas y meses. |
 | **Gráfico · cabecera e indicadores** | Subtítulo, colores de la banda superior, si se muestran los cuatro indicadores, su fondo y el marco del gráfico. |
-| **Correo · tabla de entregables** | Color del encabezado, color del encabezado de estatus, decimales de los indicadores y si los cuatro indicadores se repiten como texto. |
+| **Gráfico · colores de los valores de los indicadores** | El color de la cifra grande de cada uno de los cuatro indicadores, por separado. |
+| **Correo · tabla de entregables** | Fondo y color de letra del encabezado (con la columna de estatus aparte), decimales de los indicadores y si los cuatro indicadores se repiten como texto. |
 | **Correo · firma** | Ruta de la firma y ancho con el que se inserta. |
 | **Aplicación** | Tema claro u oscuro. |
 
@@ -191,6 +192,14 @@ Dos convenios importantes:
   escribes un número, manda ese número.
 - **Los colores de etiqueta vacíos se heredan**: las de las líneas toman el color de su
   propia línea y las de las barras salen en negro.
+- **Los colores de los indicadores vacíos se calculan solos**: «Avance Planificado» y
+  «Avance Real» toman el color de su línea de la Curva S; «Desviación» sale verde si es
+  favorable y roja si es negativa, y «SPI» verde si llega a 0,95 y rojo si no. Si escribes
+  un color, manda ese y afecta tanto a la cifra como a la franja de su tarjeta.
+
+El encabezado de la tabla se controla en dos grupos, igual para el fondo y para la letra:
+de «NOMBRE DEL ENTREGABLE» a «DÍAS DE ESPERA» por un lado, y «ESTATUS DEL ENTREGABLE LC»
+por otro.
 
 Los porcentajes de los ejes Y y el texto de la leyenda no siguen a `Color texto eje X`:
 se mantienen en gris para que oscurecer las bandas no los deje invisibles.

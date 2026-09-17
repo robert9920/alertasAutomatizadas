@@ -121,6 +121,12 @@ class OpcionesGrafico:
     color_etq_barra_real: str | None = None
     color_etq_barra_tendencia: str | None = None
 
+    # -- colores de los valores de los indicadores (None = automatico) ------ #
+    color_kpi_planificado: str | None = None
+    color_kpi_real: str | None = None
+    color_kpi_desviacion: str | None = None
+    color_kpi_spi: str | None = None
+
     # -- eje X y titulo ----------------------------------------------------- #
     color_banda: str = COLOR_BANDA_EJE_X
     color_texto_banda: str = COLOR_TEXTO_EJE_X
@@ -173,6 +179,11 @@ class OpcionesGrafico:
             color_etq_barra_previsto=bd.cfg_opcional("Color etiqueta barra Previsto"),
             color_etq_barra_real=bd.cfg_opcional("Color etiqueta barra Real"),
             color_etq_barra_tendencia=bd.cfg_opcional("Color etiqueta barra Tendencia"),
+
+            color_kpi_planificado=bd.cfg_opcional("Color valor Avance Planificado"),
+            color_kpi_real=bd.cfg_opcional("Color valor Avance Real"),
+            color_kpi_desviacion=bd.cfg_opcional("Color valor Desviación"),
+            color_kpi_spi=bd.cfg_opcional("Color valor SPI"),
 
             color_banda=color("Color bandas eje X", COLOR_BANDA_EJE_X),
             color_texto_banda=color("Color texto eje X", COLOR_TEXTO_EJE_X),
@@ -366,7 +377,12 @@ def _dibujar_indicadores(lienzo, opciones: OpcionesGrafico,
 
 def _tarjetas_indicadores(datos_ev, opciones: OpcionesGrafico
                           ) -> list[tuple[str, str, str, str]]:
-    """(rotulo, valor, pie, color) de los cuatro indicadores del proyecto."""
+    """(rotulo, valor, pie, color) de los cuatro indicadores del proyecto.
+
+    El color se calcula como siempre -las dos primeras tarjetas heredan el de su
+    linea de la Curva S y las otras dos son verdes o rojas segun el resultado- y
+    solo se sustituye si en Config hay un color escrito para esa tarjeta.
+    """
     kpis = datos_ev.kpis(opciones.decimales)
     semana = datos_ev.semana_corte
     pie_semana = f"(Semana {semana[1:]})" if semana.upper().startswith("S") else f"({semana})"
@@ -380,10 +396,13 @@ def _tarjetas_indicadores(datos_ev, opciones: OpcionesGrafico
 
     return [
         ("AVANCE PLANIFICADO", kpis["avance_planificado"], pie_semana,
-         opciones.color_linea_previsto),
-        ("AVANCE REAL", kpis["avance_real"], pie_semana, opciones.color_linea_real),
-        ("DESVIACIÓN", desviacion, "(Real vs. Planificado)", color_desviacion),
-        ("SPI", kpis["spi"], "(Índice de programación)", color_spi),
+         opciones.color_kpi_planificado or opciones.color_linea_previsto),
+        ("AVANCE REAL", kpis["avance_real"], pie_semana,
+         opciones.color_kpi_real or opciones.color_linea_real),
+        ("DESVIACIÓN", desviacion, "(Real vs. Planificado)",
+         opciones.color_kpi_desviacion or color_desviacion),
+        ("SPI", kpis["spi"], "(Índice de programación)",
+         opciones.color_kpi_spi or color_spi),
     ]
 
 

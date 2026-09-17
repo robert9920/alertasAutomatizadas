@@ -160,9 +160,16 @@ CONFIG_DEFECTO: dict[str, str] = {
     "Mostrar indicadores en gráfico": "Sí",
     "Color fondo indicadores": COLOR_FONDO_INDICADOR,
     "Color marco gráfico": COLOR_MARCO_GRAFICO,
+    # -- gráfico: colores de los valores de los indicadores (vacío = automático) #
+    "Color valor Avance Planificado": "",
+    "Color valor Avance Real": "",
+    "Color valor Desviación": "",
+    "Color valor SPI": "",
     # -- correo: tabla de entregables -------------------------------------- #
     "Color encabezado tabla": "#F8827F",
     "Color encabezado estatus": "#F2F2F2",
+    "Color texto encabezado tabla": "#000000",
+    "Color texto encabezado estatus": "#000000",
     "Decimales avance": "0",
     "Mostrar indicadores en el texto": "No",
     "Ancho imagen en el correo": "100%",
@@ -181,6 +188,8 @@ SECCIONES_CONFIG: dict[str, str] = {
     "Color etiqueta Previsto Acum": "GRÁFICO · colores de las etiquetas  (vacío = heredado)",
     "Color bandas eje X": "GRÁFICO · eje X",
     "Subtítulo gráfico": "GRÁFICO · cabecera e indicadores",
+    "Color valor Avance Planificado":
+        "GRÁFICO · colores de los valores de los indicadores  (vacío = automático)",
     "Color encabezado tabla": "CORREO · tabla de entregables",
     "Ruta firma": "CORREO · firma",
     "Tema": "APLICACIÓN",
@@ -238,12 +247,32 @@ AYUDA_CONFIG: dict[str, str] = {
     "Tamaño valor indicadores": "Tamaño de la cifra grande de cada indicador.",
     "Color fondo indicadores": "Fondo de las tarjetas de indicadores.",
     "Color marco gráfico": "Borde exterior del gráfico.",
+    "Color valor Avance Planificado": (
+        "Color de la cifra y de la franja de esa tarjeta. "
+        "Vacío: el color de la línea «% Previsto Acum»."
+    ),
+    "Color valor Avance Real": (
+        "Color de la cifra y de la franja de esa tarjeta. "
+        "Vacío: el color de la línea «% Real Acum»."
+    ),
+    "Color valor Desviación": (
+        "Vacío: verde si la desviación es favorable y rojo si es negativa."
+    ),
+    "Color valor SPI": (
+        "Vacío: verde si el SPI llega a 0,95 y rojo si no lo alcanza."
+    ),
     "Mostrar indicadores en el texto": (
         "Sí / No. Repite los 4 indicadores como lista en el cuerpo del correo. "
         "Por defecto No, porque ya salen dentro del gráfico."
     ),
     "Color encabezado tabla": "Fondo del encabezado de la tabla, salvo la última columna.",
     "Color encabezado estatus": "Fondo del encabezado de «ESTATUS DEL ENTREGABLE LC».",
+    "Color texto encabezado tabla": (
+        "Color de la letra del encabezado, de «NOMBRE DEL ENTREGABLE» a «DÍAS DE ESPERA»."
+    ),
+    "Color texto encabezado estatus": (
+        "Color de la letra del encabezado de «ESTATUS DEL ENTREGABLE LC»."
+    ),
     "Decimales avance": "Decimales de Planificado, Real y Desviación (0 = enteros).",
     "Ruta firma": (
         "Vacío: busca firma.png (o .jpg) en la carpeta del programa. "

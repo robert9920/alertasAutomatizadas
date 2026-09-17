@@ -25,6 +25,11 @@ FUENTE = "Calibri, Arial, sans-serif"
 # entregables, que tambien va al 100%.
 ANCHO_IMAGEN = "100%"
 
+# Aire entre el ultimo parrafo y la tabla de entregables. Se usa un parrafo
+# espaciador y no un margen mayor porque Outlook (motor de Word) colapsa los
+# margenes que preceden a una tabla con borde; el espaciador si lo respeta.
+ESPACIO_ANTES_TABLA = '<p style="margin:0; font-size:6pt; line-height:8px;">&nbsp;</p>'
+
 _FORMATOS_FECHA = [
     ("yyyy", "%Y"), ("yy", "%y"),
     ("mmmm", "%B"), ("mmm", "%b"), ("mm", "%m"),
@@ -96,7 +101,8 @@ def _parrafo(texto: str) -> str:
     return f'<p style="margin:0 0 10px 0;">{cuerpo}</p>'
 
 
-def _tabla(entregables: list, color_encabezado: str, color_estatus: str) -> str:
+def _tabla(entregables: list, color_encabezado: str, color_estatus: str,
+           texto_encabezado: str = "#000000", texto_estatus: str = "#000000") -> str:
     anchos = ["25%", "12%", "21%", "9%", "11%", "8%", "14%"]
     filas = [
         '<table border="1" cellspacing="0" cellpadding="5" width="100%" '
@@ -106,9 +112,12 @@ def _tabla(entregables: list, color_encabezado: str, color_estatus: str) -> str:
 
     filas.append("<tr>")
     for i, (clave, titulo) in enumerate(COLUMNAS_CORREO):
-        fondo = color_estatus if clave == "estatus" else color_encabezado
+        es_estatus = clave == "estatus"
+        fondo = color_estatus if es_estatus else color_encabezado
+        letra = texto_estatus if es_estatus else texto_encabezado
         filas.append(
             f'<td width="{anchos[i]}" style="background-color:{fondo}; '
+            f'color:{letra}; '
             'border:1px solid #000000; text-align:center; vertical-align:middle; '
             'padding:6px;"><b>' + html.escape(titulo) + "</b></td>"
         )
@@ -134,6 +143,8 @@ def construir_html(bd, datos, entregables: list, incluir_grafico: bool = True,
     ctx = contexto(bd, datos, entregables)
     color = bd.cfg("Color encabezado tabla", "#F8827F")
     color_estatus = bd.cfg("Color encabezado estatus", "#F2F2F2")
+    texto_encabezado = bd.cfg("Color texto encabezado tabla", "#000000")
+    texto_estatus = bd.cfg("Color texto encabezado estatus", "#000000")
 
     partes = [
         f'<html><body style="font-family:{FUENTE}; font-size:11pt; color:#000000;">',
@@ -167,7 +178,9 @@ def construir_html(bd, datos, entregables: list, incluir_grafico: bool = True,
     partes += [
         _parrafo(rellenar(bd.txt("Párrafo entregables 1"), ctx)),
         _parrafo(rellenar(bd.txt("Párrafo entregables 2"), ctx)),
-        _tabla(entregables, color, color_estatus) if entregables else _parrafo(
+        ESPACIO_ANTES_TABLA,
+        _tabla(entregables, color, color_estatus, texto_encabezado, texto_estatus)
+        if entregables else _parrafo(
             "<i>No hay entregables pendientes con el estatus seleccionado.</i>"
         ),
         '<p style="margin:14px 0 0 0;">'
