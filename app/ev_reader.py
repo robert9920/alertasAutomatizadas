@@ -1,10 +1,17 @@
 """Lectura de la hoja EV: series de avance, semana de corte, KPIs y SPI."""
 from __future__ import annotations
 
+import datetime as dt
 import re
 from dataclasses import dataclass, field
 
-from .constantes import CAMPOS_EV, CELDA_SPI, COL_INICIO_SEMANAS
+from .constantes import (
+    CAMPOS_EV,
+    CELDA_FECHA_INICIO,
+    CELDA_SPI,
+    COL_INICIO_SEMANAS,
+    ETIQUETA_FECHA_INICIO,
+)
 from .excel_utils import (
     a_celda,
     a_float,
@@ -40,6 +47,8 @@ class DatosEV:
     idx_corte: int = -1
     spi: float | None = None
     celda_spi: str = ""
+    fecha_inicio: dt.date | None = None
+    fecha_fin: dt.date | None = None
     avisos: list[str] = field(default_factory=list)
 
     # -- derivados -------------------------------------------------------- #
@@ -251,6 +260,46 @@ def _resolver_spi(ws, mapeo: dict, datos: DatosEV, combinadas: dict) -> None:
         datos.avisos.append("No se pudo determinar el SPI en la hoja EV.")
 
 
+def _a_fecha(bruto) -> dt.date | None:
+    if isinstance(bruto, dt.datetime):
+        return bruto.date()
+    if isinstance(bruto, dt.date):
+        return bruto
+    return None
+
+
+def _resolver_fechas(ws, datos: DatosEV, combinadas: dict) -> None:
+    """Fecha de inicio (al lado de su etiqueta) y fecha de la ultima semana.
+
+    La de inicio esta a la derecha de «Fecha de corte:», en una celda que suele
+    ir combinada; `valor()` ya devuelve el contenido de la celda maestra. La de
+    fin sale de la fila FECHA, en la ultima columna que se grafica, que es la que
+    `leer()` deja en `col_fin` tras recortar las semanas sin previsto.
+    """
+    encontrado = buscar_etiqueta(
+        ws, ETIQUETA_FECHA_INICIO,
+        range(1, min(MAX_FILA_ETIQUETAS, ws.max_row or MAX_FILA_ETIQUETAS) + 1),
+        range(1, MAX_COL_ETIQUETAS + 1),
+        combinadas,
+    )
+    if encontrado:
+        fila, col = encontrado
+        for salto in range(1, 4):           # la etiqueta puede ocupar dos celdas
+            datos.fecha_inicio = _a_fecha(valor(ws, fila, col + salto, combinadas))
+            if datos.fecha_inicio:
+                break
+    if datos.fecha_inicio is None:
+        referencia = a_celda(CELDA_FECHA_INICIO)
+        if referencia:
+            datos.fecha_inicio = _a_fecha(
+                valor(ws, referencia[0], referencia[1], combinadas)
+            )
+
+    fila_fecha = datos.filas.get("fecha")
+    if fila_fecha and datos.col_fin >= datos.col_inicio:
+        datos.fecha_fin = _a_fecha(valor(ws, fila_fecha, datos.col_fin, combinadas))
+
+
 # --------------------------------------------------------------------------- #
 def leer(wb, proyecto) -> DatosEV:
     """Extrae las series de avance de la hoja EV del libro ya abierto."""
@@ -295,6 +344,7 @@ def leer(wb, proyecto) -> DatosEV:
     datos.meses = _leer_meses(ws, datos, combinadas)
     datos.idx_corte = _semana_de_corte(datos)
     _resolver_spi(ws, mapeo, datos, combinadas)
+    _resolver_fechas(ws, datos, combinadas)
 
     if datos.sin_datos():
         datos.avisos.append(

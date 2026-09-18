@@ -1,4 +1,4 @@
 """App Alertas - Reporte de avance y entregables por proyecto."""
 
-__version__ = "1.4.0"
+__version__ = "1.5.1"
 APP_NOMBRE = "App Alertas"

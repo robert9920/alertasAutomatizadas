@@ -169,7 +169,7 @@ def construir_html(bd, datos, entregables: list, incluir_grafico: bool = True,
         ]
 
     if incluir_grafico:
-        ancho = bd.cfg("Ancho imagen en el correo") or ANCHO_IMAGEN
+        ancho = normalizar_ancho(bd.cfg("Ancho imagen en el correo"))
         partes.append(
             f'<p style="margin:0 0 14px 0;"><img src="cid:{CID_GRAFICO}" '
             f'width="{ancho}" alt="Curva S del proyecto"></p>'
@@ -229,6 +229,58 @@ def a_texto_plano(html_correo: str) -> str:
 # documento). Por eso la vista previa recibe pixeles y se restaura el valor
 # configurado justo antes de enviar.
 # --------------------------------------------------------------------------- #
+ANCHO_MIN_PCT, ANCHO_MAX_PCT = 10, 100
+ANCHO_MIN_PX, ANCHO_MAX_PX = 200, 2400
+# Por debajo de esto el numero es la fraccion que guarda Excel, no un ancho:
+# al teclear «90%» la celda almacena 0,9.
+FRACCION_MAXIMA = 1.5
+
+_RE_NUMERO = re.compile(r"\d+(?:[.,]\d+)?")
+_RE_MILES = re.compile(r"\d{1,3}[.,]\d{3}")
+
+
+def _numero(bruto: str) -> float | None:
+    """Primer numero del texto, tolerando «1.200», «80,5», «1200px» y «90 %»."""
+    limpio = bruto.replace(" ", "").replace(" ", "")
+    # El punto o la coma solo son separador de miles si detras van tres cifras.
+    if _RE_MILES.fullmatch(limpio.replace("%", "").replace("px", "")):
+        limpio = limpio.replace(".", "").replace(",", "")
+    encontrado = _RE_NUMERO.search(limpio.replace(",", "."))
+    if not encontrado:
+        return None
+    try:
+        return float(encontrado.group(0))
+    except ValueError:
+        return None
+
+
+def normalizar_ancho(texto: str | None) -> str:
+    """Convierte lo que haya en Config a algo que el correo entienda.
+
+    Devuelve un porcentaje ("90%") o un numero de pixeles ("1400"). Ante la duda
+    manda el porcentaje: hasta 100 se entiende como porcentaje y por encima de
+    100, como pixeles.
+
+    El caso raro que hay que atender es el de Excel: al escribir «90%» en la
+    celda no guarda ese texto, guarda el numero 0,9 con formato de porcentaje.
+    Por eso un numero que no llegue a 1,5 se interpreta como fraccion.
+    """
+    bruto = str(texto or "").strip()
+    if not bruto:
+        return ANCHO_IMAGEN
+
+    numero = _numero(bruto)
+    if numero is None:
+        return ANCHO_IMAGEN
+
+    if "%" not in bruto and numero > ANCHO_MAX_PCT:
+        return str(int(round(min(max(numero, ANCHO_MIN_PX), ANCHO_MAX_PX))))
+
+    if "%" not in bruto and numero <= FRACCION_MAXIMA:
+        numero *= 100.0
+    return f"{int(round(min(max(numero, ANCHO_MIN_PCT), ANCHO_MAX_PCT)))}%"
+
+
 _RE_IMG = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
 _RE_ATRIBUTO_WIDTH = re.compile(r'\swidth\s*=\s*"([^"]*)"', re.IGNORECASE)
 _RE_ATRIBUTO_HEIGHT = re.compile(r'\sheight\s*=\s*"[^"]*"', re.IGNORECASE)
@@ -277,20 +329,24 @@ def _reescribir_grafico(html: str, funcion) -> str:
 def ancho_para_vista(html: str, ancho_px: int) -> str:
     """Porcentaje -> pixeles, porque Qt no sabe renderizar porcentajes.
 
-    Si el ancho configurado ya esta en pixeles no hay nada que convertir.
+    El porcentaje se aplica sobre el ancho util del editor, igual que hara el
+    cliente de correo con el suyo. Si el ancho configurado ya esta en pixeles no
+    hay nada que convertir.
     """
     def convertir(etiqueta: str) -> str:
-        if not _ancho_actual(etiqueta).endswith("%"):
+        actual = _ancho_actual(etiqueta)
+        if not actual.endswith("%"):
             return etiqueta
-        return _fijar_ancho(etiqueta, str(max(int(ancho_px), 200)))
+        fraccion = float(normalizar_ancho(actual).rstrip("%")) / 100.0
+        return _fijar_ancho(etiqueta, str(max(int(ancho_px * fraccion), 200)))
 
     return _reescribir_grafico(html, convertir)
 
 
 def ancho_para_correo(html: str, ancho: str = ANCHO_IMAGEN) -> str:
     """Devuelve a la Curva S el ancho configurado, antes de enviar o guardar."""
-    ancho = (ancho or ANCHO_IMAGEN).strip() or ANCHO_IMAGEN
-    return _reescribir_grafico(html, lambda etiqueta: _fijar_ancho(etiqueta, ancho))
+    normalizado = normalizar_ancho(ancho)
+    return _reescribir_grafico(html, lambda etiqueta: _fijar_ancho(etiqueta, normalizado))
 
 
 # --------------------------------------------------------------------------- #

@@ -9,6 +9,7 @@ Si el archivo ya existe NO se sobrescribe (hay que borrarlo o pasar --forzar).
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -20,6 +21,7 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from app.email_builder import normalizar_ancho  # noqa: E402
 from app.constantes import (  # noqa: E402
     AYUDA_CONFIG,
     AYUDA_PLANTILLA,
@@ -124,16 +126,85 @@ def _hoja_parametros(wb, nombre: str, valores: dict[str, str], ayuda: dict[str, 
     return posiciones
 
 
-def _validacion(ws, formula: str, rango: str, titulo: str, mensaje: str) -> None:
+def _validacion(ws, formula: str, rango: str, titulo: str, mensaje: str,
+                abierta: bool = False) -> None:
+    """Desplegable en una celda. Con `abierta`, sugiere pero no obliga."""
     dv = DataValidation(type="list", formula1=formula, allow_blank=True, showDropDown=False)
     dv.promptTitle = titulo
     dv.prompt = mensaje
+    if abierta:
+        # Excel sigue ofreciendo la lista, pero acepta cualquier otro valor.
+        dv.showErrorMessage = False
     ws.add_data_validation(dv)
     dv.add(rango)
 
 
+@dataclass(frozen=True)
+class HojaMapeo:
+    """Todo lo que define una hoja de mapeo, para construirla en un solo sitio."""
+    nombre: str
+    tabla: str
+    fijas: list[str]                       # columnas propias de la hoja
+    anchos_fijos: list[int]
+    ancho_campo: int
+    campos: list[tuple[str, str, object]]  # CAMPOS_LET o CAMPOS_EV
+    notas: dict[str, str]
+    pista: str
+
+    @property
+    def titulos(self) -> list[str]:
+        return self.fijas + [titulo for _, titulo, _ in self.campos]
+
+
+HOJAS_MAPEO = (
+    HojaMapeo(
+        "MapeoLET", "tblMapeoLET",
+        ["Código Proyecto", "Fila Encabezado", "Fila Inicio Datos"], [22, 14, 15], 26,
+        CAMPOS_LET,
+        {"B1": "Número de fila. Vacío = detección automática.",
+         "D1": "Letra de columna (M, n, BS...). Vacío = búsqueda por texto y luego respaldo."},
+        "Posiciones del archivo modelo (solo referencia): ",
+    ),
+    HojaMapeo(
+        "MapeoEV", "tblMapeoEV",
+        ["Código Proyecto", "Columna Inicio Semanas", "Celda SPI"], [22, 20, 12], 18,
+        CAMPOS_EV,
+        {"B1": "Letra de la columna de la primera semana (C en el modelo).",
+         "C1": "Celda exacta del valor del SPI, ej. H44.",
+         "D1": "Número de fila. Vacío = búsqueda por texto."},
+        "Filas del archivo modelo (solo referencia): ",
+    ),
+)
+
+
+def _hoja_mapeo(wb, hoja: HojaMapeo, filas: list[dict[str, object]]) -> None:
+    """Crea una hoja de mapeo con sus columnas en el orden de esta version.
+
+    `filas` son los valores por titulo de columna; lo que no venga queda vacio,
+    que para la aplicacion significa «averigualo tú».
+    """
+    ws = wb.create_sheet(hoja.nombre)
+    titulos = hoja.titulos
+    _encabezados(ws, titulos,
+                 hoja.anchos_fijos + [hoja.ancho_campo] * len(hoja.campos))
+    for celda, nota in hoja.notas.items():
+        ws[celda].comment = Comment(nota, "App Alertas")
+
+    filas = filas or [{}]
+    _escribir_filas(ws, [[fila.get(t, "") or "" for t in titulos] for fila in filas])
+    _tabla(ws, hoja.tabla, len(titulos), 1 + len(filas))
+    ws.cell(row=2 + len(filas) + 1, column=1,
+            value=hoja.pista + ", ".join(
+                f"{t} = {p}" for _, t, p in hoja.campos)).font = FUENTE_AYUDA
+
+
 def _ajustes_config(ws, filas: dict[str, int]) -> None:
-    """Listas desplegables y notas de la hoja Config, segun donde haya caido cada clave."""
+    """Listas desplegables, notas y formatos de la hoja Config.
+
+    Se parte de cero con las validaciones para poder llamar a esta funcion sobre
+    una hoja que ya las tenia -al actualizar una BD- sin ir acumulando copias.
+    """
+    ws.data_validations.dataValidation = []
     for clave, opciones, titulo, mensaje in (
         ("Mostrar etiquetas de datos", '"Sí,No"', "Etiquetas",
          "Mostrar el % sobre puntos y barras."),
@@ -143,6 +214,31 @@ def _ajustes_config(ws, filas: dict[str, int]) -> None:
     ):
         if clave in filas:
             _validacion(ws, opciones, f"B{filas[clave]}", titulo, mensaje)
+
+    if "Ancho imagen en el correo" in filas:
+        fila = filas["Ancho imagen en el correo"]
+        # Formato Texto: si no, al teclear «90%» Excel guarda 0,9 y deja la celda
+        # con formato de porcentaje, con lo que un «1400» posterior se ve como
+        # «140000%». En Texto, el valor queda tal y como se escribe.
+        ws.cell(row=fila, column=2).number_format = "@"
+        _validacion(
+            ws, '"100%,90%,80%,70%,1400,1200,1000"', f"B{fila}",
+            "Ancho de la Curva S",
+            "Hasta 100 es un porcentaje del ancho del correo; más de 100, "
+            "píxeles. La lista son solo sugerencias: puedes escribir otro valor.",
+            abierta=True,
+        )
+        ws.cell(row=fila, column=2).comment = Comment(
+            "La regla es sencilla: hasta 100 es un PORCENTAJE y más de 100 son "
+            "PÍXELES.\n\n"
+            "  100%  ó  100   la Curva S ocupa lo mismo que la tabla y se adapta "
+            "a la ventana de quien lo lee (recomendado).\n"
+            "  90%   ó  90    nueve décimas de ese ancho.\n"
+            "  1400           ancho fijo de 1400 píxeles.\n\n"
+            "Los porcentajes van de 10 a 100 y los píxeles de 200 a 2400. "
+            "Si escribes algo que no se entienda, se usa 100%.\n\n"
+            "Ojo: «Ancho gráfico px» es otra cosa, la resolución de la imagen.",
+            "App Alertas")
 
     if "Ruta firma" in filas:
         ws.cell(row=filas["Ruta firma"], column=2).comment = Comment(
@@ -246,38 +342,10 @@ def construir(destino: Path, ruta_referencia: Path | None = None) -> Path:
     _validacion(ws, '"Sí,No"', "E2:E2000", "Activo",
                 "No lo excluye de la lista, solo lo desmarca por defecto.")
 
-    # ------------------------------- MapeoLET ------------------------------ #
-    ws = wb.create_sheet("MapeoLET")
-    titulos = ["Código Proyecto", "Fila Encabezado", "Fila Inicio Datos"]
-    titulos += [titulo for _, titulo, _ in CAMPOS_LET]
-    _encabezados(ws, titulos, [22, 14, 15] + [26] * len(CAMPOS_LET))
-    ws["B1"].comment = Comment("Número de fila. Vacío = detección automática.", "App Alertas")
-    ws["D1"].comment = Comment(
-        "Letra de columna (M, n, BS...). Vacío = búsqueda por texto y luego respaldo.",
-        "App Alertas")
-    filas_mapeo = [[ejemplo[0][0]] + [""] * (len(titulos) - 1)] if ejemplo else [[""] * len(titulos)]
-    _escribir_filas(ws, filas_mapeo)
-    _tabla(ws, "tblMapeoLET", len(titulos), 2)
-    fila_pista = 2 + len(filas_mapeo) + 1
-    ws.cell(row=fila_pista, column=1,
-            value="Posiciones del archivo modelo (solo referencia): "
-                  + ", ".join(f"{t} = {c}" for _, t, c in CAMPOS_LET)).font = FUENTE_AYUDA
-
-    # ------------------------------- MapeoEV ------------------------------- #
-    ws = wb.create_sheet("MapeoEV")
-    titulos = ["Código Proyecto", "Columna Inicio Semanas", "Celda SPI"]
-    titulos += [titulo for _, titulo, _ in CAMPOS_EV]
-    _encabezados(ws, titulos, [22, 20, 12] + [18] * len(CAMPOS_EV))
-    ws["B1"].comment = Comment(
-        "Letra de la columna de la primera semana (C en el modelo).", "App Alertas")
-    ws["C1"].comment = Comment("Celda exacta del valor del SPI, ej. H44.", "App Alertas")
-    ws["D1"].comment = Comment("Número de fila. Vacío = búsqueda por texto.", "App Alertas")
-    filas_mapeo = [[ejemplo[0][0]] + [""] * (len(titulos) - 1)] if ejemplo else [[""] * len(titulos)]
-    _escribir_filas(ws, filas_mapeo)
-    _tabla(ws, "tblMapeoEV", len(titulos), 2)
-    ws.cell(row=2 + len(filas_mapeo) + 1, column=1,
-            value="Filas del archivo modelo (solo referencia): "
-                  + ", ".join(f"{t} = {f}" for _, t, f in CAMPOS_EV)).font = FUENTE_AYUDA
+    # -------------------------- MapeoLET y MapeoEV -------------------------- #
+    codigo = ejemplo[0][0] if ejemplo else ""
+    for hoja in HOJAS_MAPEO:
+        _hoja_mapeo(wb, hoja, [{hoja.titulos[0]: codigo}])
 
     # ------------------------- Parámetros y textos ------------------------- #
     _hoja_parametros(wb, "SMTP", SMTP_DEFECTO, AYUDA_SMTP, ancho_valor=34)
@@ -308,6 +376,13 @@ def construir(destino: Path, ruta_referencia: Path | None = None) -> Path:
 # al final de la hoja. Se reconoce para poder descartarlo al rehacerla.
 ROTULO_ANTIGUO = "PARÁMETROS NUEVOS DE ESTA VERSIÓN"
 
+# Parametros cuyo valor se deja en su forma canonica al actualizar. Sirve para
+# recuperar las celdas que Excel contamino con formato de porcentaje: ahi el
+# ancho quedo guardado como 0,9 en vez de «90%».
+SANEADORES = {
+    "Ancho imagen en el correo": normalizar_ancho,
+}
+
 HOJAS_PARAMETROS = (
     # nombre, valores por defecto, ayudas, ancho de la columna Valor, secciones
     ("SMTP", SMTP_DEFECTO, AYUDA_SMTP, 34, None),
@@ -336,6 +411,26 @@ def _leer_parametros(ws, secciones: dict[str, str] | None) -> dict[str, str]:
     return valores
 
 
+def _leer_mapeo(ws, hoja: HojaMapeo) -> list[dict[str, object]]:
+    """Filas de una hoja de mapeo, por titulo de columna.
+
+    Se para en la primera fila sin codigo de proyecto, que es donde acaba la
+    tabla y empieza la linea de pistas.
+    """
+    titulos = [ws.cell(row=1, column=c).value for c in range(1, (ws.max_column or 1) + 1)]
+    filas: list[dict[str, object]] = []
+    for fila in range(2, (ws.max_row or 1) + 1):
+        codigo = ws.cell(row=fila, column=1).value
+        if codigo is None or not str(codigo).strip():
+            break
+        valores = {
+            str(titulo).strip(): ws.cell(row=fila, column=c).value
+            for c, titulo in enumerate(titulos, start=1) if titulo
+        }
+        filas.append(valores)
+    return filas
+
+
 def actualizar(destino: Path) -> list[str]:
     """Pone al dia una BD existente conservando lo que el usuario tenga escrito.
 
@@ -356,15 +451,23 @@ def actualizar(destino: Path) -> list[str]:
         if nombre not in wb.sheetnames:
             continue
         actuales = _leer_parametros(wb[nombre], secciones)
+        saneado = False
+        for clave, sanear in SANEADORES.items():
+            if clave in actuales:
+                limpio = sanear(actuales[clave])
+                saneado = saneado or limpio != actuales[clave]
+                actuales[clave] = limpio
         # Lo que el usuario haya anadido por su cuenta se respeta, al final.
         propios = {c: v for c, v in actuales.items() if c not in defectos}
         valores = {c: actuales.get(c, d) for c, d in defectos.items()}
         faltan = [c for c in defectos if c not in actuales]
 
         # Se rehace la hoja tambien cuando estan todos los parametros pero en otro
-        # orden: es el caso de las BD que actualizo una version anterior, que los
-        # dejaba amontonados al final en vez de en su seccion.
-        if not faltan and list(actuales) == list(valores) + list(propios):
+        # orden -el caso de las BD que actualizo una version anterior, que los
+        # dejaba amontonados al final en vez de en su seccion- y cuando algun
+        # valor venia en una forma que hay que corregir.
+        if (not faltan and not saneado
+                and list(actuales) == list(valores) + list(propios)):
             continue
 
         indice = wb.sheetnames.index(nombre)
@@ -372,11 +475,45 @@ def actualizar(destino: Path) -> list[str]:
         filas = _hoja_parametros(wb, nombre, {**valores, **propios}, ayudas,
                                  ancho_valor=ancho, secciones=secciones)
         wb.move_sheet(nombre, offset=indice - wb.sheetnames.index(nombre))
-        if nombre == "Config":
-            _ajustes_config(wb[nombre], filas)
 
         anadidos += [f"{nombre} · {c}" for c in faltan]
         retocadas.append(nombre)
+
+    # Los desplegables, las notas y los formatos de celda de Config se refrescan
+    # siempre, se haya rehecho la hoja o no: es lo que devuelve a Texto la celda
+    # del ancho en las BD donde Excel le puso formato de porcentaje.
+    if "Config" in wb.sheetnames:
+        ws = wb["Config"]
+        posiciones = {
+            str(ws.cell(row=fila, column=1).value).strip(): fila
+            for fila in range(2, (ws.max_row or 1) + 1)
+            if ws.cell(row=fila, column=1).value
+        }
+        antes = [ws.cell(row=f, column=2).number_format for f in posiciones.values()]
+        _ajustes_config(ws, posiciones)
+        if [ws.cell(row=f, column=2).number_format for f in posiciones.values()] != antes:
+            retocadas.append("Config")
+
+    # Las hojas de mapeo tambien pueden ganar columnas (un campo nuevo del Excel
+    # de proyecto). Se rehacen igual: mismas columnas y mismo orden que en una BD
+    # recien creada, conservando lo que el usuario tenga puesto en cada proyecto.
+    for hoja in HOJAS_MAPEO:
+        if hoja.nombre not in wb.sheetnames:
+            continue
+        ws = wb[hoja.nombre]
+        actuales = [ws.cell(row=1, column=c).value for c in range(1, (ws.max_column or 1) + 1)]
+        if [str(t).strip() for t in actuales if t] == hoja.titulos:
+            continue
+        faltan = [t for t in hoja.titulos if t not in {str(a).strip() for a in actuales if a}]
+        filas = _leer_mapeo(ws, hoja)
+
+        indice = wb.sheetnames.index(hoja.nombre)
+        del wb[hoja.nombre]
+        _hoja_mapeo(wb, hoja, filas)
+        wb.move_sheet(hoja.nombre, offset=indice - wb.sheetnames.index(hoja.nombre))
+
+        anadidos += [f"{hoja.nombre} · {t}" for t in faltan]
+        retocadas.append(hoja.nombre)
 
     if retocadas:
         try:

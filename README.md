@@ -171,7 +171,7 @@ Está dividida en secciones. Cada parámetro lleva su ayuda en la tercera column
 | **Gráfico · colores de las series** | Las 3 líneas acumuladas y las 3 barras semanales. |
 | **Gráfico · colores de las etiquetas** | Las 6 por separado. |
 | **Gráfico · eje X** | Fondo y texto de los recuadros de semanas y meses. |
-| **Gráfico · cabecera e indicadores** | Subtítulo, colores de la banda superior, si se muestran los cuatro indicadores, su fondo y el marco del gráfico. |
+| **Gráfico · cabecera e indicadores** | Subtítulo, colores de la banda superior, si se muestran los cuatro indicadores, su fondo, el marco del gráfico, el tamaño y color de la línea pequeña de cada tarjeta, y los de las fechas FI/FF. |
 | **Gráfico · colores de los valores de los indicadores** | El color de la cifra grande de cada uno de los cuatro indicadores, por separado. |
 | **Correo · tabla de entregables** | Fondo y color de letra del encabezado (con la columna de estatus aparte), decimales de los indicadores y si los cuatro indicadores se repiten como texto. |
 | **Correo · firma** | Ruta de la firma y ancho con el que se inserta. |
@@ -179,11 +179,26 @@ Está dividida en secciones. Cada parámetro lleva su ayuda en la tercera column
 
 > **Resolución y ancho no son lo mismo.** `Ancho gráfico px` y `Alto gráfico px` definen la
 > **resolución** del PNG: su nitidez y su proporción. El espacio que ocupa dentro del correo
-> lo decide `Ancho imagen en el correo`, que por defecto vale `100%` para que el gráfico
-> termine exactamente donde termina la tabla de entregables, se abra la ventana del cliente
-> como se abra. Si prefieres un ancho fijo, escribe ahí un número de píxeles.
+> lo decide `Ancho imagen en el correo`. Subir solo la resolución hace la imagen más nítida,
+> **no más ancha**.
 >
-> Subir solo la resolución hace la imagen más nítida, **no más ancha**.
+> La regla de `Ancho imagen en el correo` es: **hasta 100 es un porcentaje y más de 100 son
+> píxeles**. La celda trae un desplegable con los valores más usados, pero puedes escribir
+> otro:
+>
+> | Lo que escribes | Qué hace |
+> |---|---|
+> | `100%` ó `100` | el gráfico termina donde termina la tabla y se adapta a la ventana de quien lo lee. Es el valor por defecto. |
+> | `90%` ó `90` | nueve décimas de ese ancho. Los porcentajes van de 10 a 100. |
+> | `1400` | ancho fijo de 1400 píxeles. Se admite de 200 a 2400. |
+>
+> Se toleran las variantes habituales (`100 %`, `1200px`, `1.200`); si el valor no se
+> entiende, se usa `100%`.
+>
+> Esa celda va en **formato Texto** a propósito. Si estuviera en General, al teclear `90%`
+> Excel no guardaría ese texto sino el número `0,9` con formato de porcentaje, y a partir
+> de ahí un `1400` se vería como `140000%`. Si tu base de datos viene de una versión
+> anterior y tiene ese problema, se corrige sola la próxima vez que se actualice.
 
 Dos convenios importantes:
 
@@ -250,7 +265,17 @@ cuando baja de 0,95, igual que en la pestaña «Datos y filtros».
 Todo el reparto vertical se calcula en píxeles: al subir `Alto gráfico px` o el tamaño de
 letra, la banda y los indicadores se reajustan sin descuadrar la curva. La banda y la fila
 de indicadores ocupan todo el ancho; el área de trazado reserva su margen derecho para la
-leyenda.
+leyenda, y ese hueco se **mide sobre el texto de la propia leyenda**, así que por mucho que
+subas `Tamaño leyenda` nunca se corta: lo que se encoge es el área de trazado.
+
+El área de trazado se cierra con una línea vertical gris a cada lado, la del eje Y izquierdo
+y la del derecho. Arriba y abajo no se dibuja nada, porque ya están la rejilla y las bandas
+de semanas y meses.
+
+Sobre la curva se marcan además las **fechas de inicio y fin** del proyecto, `FI: dd/mm` y
+`FF: dd/mm`. La de inicio sale de la celda que hay a la derecha de «Fecha de corte:» en la
+hoja EV; la de fin, de la fila `FECHA` en la última semana que se grafica. Si alguna de las
+dos no se encuentra, simplemente no se dibuja.
 
 En el correo el gráfico se inserta al `100%`, igual que la tabla, así que los dos terminan
 en la misma vertical. El editor de la aplicación no sabe renderizar porcentajes en
@@ -274,6 +299,11 @@ por debajo, abajo. La comparación es contra `% Previsto Acum`, usando como refe
 - La **primera etiqueta de `% Tendencia Acum` no se dibuja**, porque repite el último
   valor de `% Real Acum`.
 - Una etiqueta que caiga demasiado abajo se sube, para que no se salga del gráfico.
+- El **100 % es la excepción a las dos primeras reglas**: se etiqueta siempre, aunque
+  coincida con otra serie, porque es la meta del proyecto.
+
+En las barras semanales se etiqueta **toda barra con avance**, por pequeño que sea; solo las
+semanas sin nada que contar se dejan limpias.
 
 ---
 

@@ -25,6 +25,7 @@ FILA_INICIO_DATOS_LET = 9        # respaldo
 # Hoja EV  ->  (clave interna, etiqueta a buscar, fila de respaldo)
 # --------------------------------------------------------------------------- #
 CAMPOS_EV: list[tuple[str, str, int]] = [
+    ("fecha",           "FECHA",              9),
     ("mes",             "MES",               10),
     ("semana",          "SEMANA",            11),
     ("previsto",        "% Previsto",        12),
@@ -36,6 +37,11 @@ CAMPOS_EV: list[tuple[str, str, int]] = [
 ]
 COL_INICIO_SEMANAS = "C"         # respaldo
 CELDA_SPI = "H44"                # respaldo
+
+# Fecha de inicio del proyecto: va a la derecha de esta etiqueta. En el archivo
+# modelo el rotulo esta en B7 y la fecha en C7 (combinada con D7).
+ETIQUETA_FECHA_INICIO = "Fecha de corte"
+CELDA_FECHA_INICIO = "C7"        # respaldo
 
 ESTADO_FILTRO_DEFECTO = "En revisión del cliente"
 TIPOS_DESTINATARIO = ("Para", "CC", "CCO")
@@ -136,6 +142,8 @@ CONFIG_DEFECTO: dict[str, str] = {
     "Tamaño subtítulo gráfico": "10",
     "Tamaño título indicadores": "9",
     "Tamaño valor indicadores": "20",
+    "Tamaño descripción indicadores": "",
+    "Tamaño fechas FI y FF": "",
     # -- gráfico: colores de las series ------------------------------------ #
     "Color línea Previsto Acum": COLOR_LINEA_PREVISTO,
     "Color línea Real Acum": COLOR_LINEA_REAL,
@@ -160,6 +168,8 @@ CONFIG_DEFECTO: dict[str, str] = {
     "Mostrar indicadores en gráfico": "Sí",
     "Color fondo indicadores": COLOR_FONDO_INDICADOR,
     "Color marco gráfico": COLOR_MARCO_GRAFICO,
+    "Color descripción indicadores": "",
+    "Color fechas FI y FF": "",
     # -- gráfico: colores de los valores de los indicadores (vacío = automático) #
     "Color valor Avance Planificado": "",
     "Color valor Avance Real": "",
@@ -245,6 +255,18 @@ AYUDA_CONFIG: dict[str, str] = {
     ),
     "Tamaño título indicadores": "Tamaño del rótulo de cada indicador.",
     "Tamaño valor indicadores": "Tamaño de la cifra grande de cada indicador.",
+    "Tamaño descripción indicadores": (
+        "Tamaño de la línea pequeña de cada tarjeta: «(Semana 15)», "
+        "«(Real vs. Planificado)»… Vacío: algo menor que el rótulo."
+    ),
+    "Color descripción indicadores": (
+        "Color de esa línea pequeña en las cuatro tarjetas. Vacío: gris."
+    ),
+    "Tamaño fechas FI y FF": (
+        "Tamaño de «FI: 25/08» y «FF: 29/11» sobre la curva. "
+        "Vacío: el mismo que las etiquetas de las líneas."
+    ),
+    "Color fechas FI y FF": "Color de esas dos fechas. Vacío: negro.",
     "Color fondo indicadores": "Fondo de las tarjetas de indicadores.",
     "Color marco gráfico": "Borde exterior del gráfico.",
     "Color valor Avance Planificado": (
@@ -280,9 +302,10 @@ AYUDA_CONFIG: dict[str, str] = {
     ),
     "Ancho firma px": "Ancho con el que se inserta la firma en el correo.",
     "Ancho imagen en el correo": (
-        "Ancho con el que se MUESTRA la Curva S. 100% = ocupa lo mismo que la "
-        "tabla de entregables y se adapta a la ventana del cliente. También "
-        "admite un número de píxeles fijo, p. ej. 1200."
+        "Ancho con el que se MUESTRA la Curva S. Hasta 100 es un PORCENTAJE del "
+        "ancho del correo (100% = igual que la tabla y se adapta a la ventana del "
+        "cliente; mínimo 10%); más de 100 son PÍXELES fijos (de 200 a 2400). "
+        "Valen «90», «90%» y «1400». Si el valor no se entiende, se usa 100%."
     ),
     "Tema": "Claro  |  Oscuro",
 }

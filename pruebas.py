@@ -8,6 +8,7 @@ el filtro por estatus, las reglas de la Curva S y el armado del correo.
 """
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import sys
 import tempfile
@@ -20,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from openpyxl import Workbook, load_workbook                    # noqa: E402
 
 from app import bd as modulo_bd                                 # noqa: E402
-from app import chart, email_builder, lectura, let_reader, sender  # noqa: E402
+from app import chart, email_builder, ev_reader, lectura, let_reader, sender  # noqa: E402
 from app.constantes import COLOR_ALERTA, COLUMNAS_CORREO, NOMBRE_BD  # noqa: E402
 from app.excel_compat import abrir as abrir_libro               # noqa: E402
 from app.excel_utils import coincide, normalizar                # noqa: E402
@@ -85,6 +86,10 @@ def prueba_referencia() -> lectura.DatosProyecto | None:
               str(len(let.filtrar(sugeridos))))
     comprobar(len(let.filtrar(["Cerrado"])) == 25, "filtro alternativo 'Cerrado'",
               str(len(let.filtrar(["Cerrado"]))))
+    comprobar(ev.fecha_inicio == dt.date(2026, 5, 19),
+              "fecha de inicio, junto a «Fecha de corte:»", str(ev.fecha_inicio))
+    comprobar(ev.fecha_fin is not None and ev.fecha_fin > ev.fecha_inicio,
+              "fecha de la última semana graficada", str(ev.fecha_fin))
     return datos
 
 
@@ -273,6 +278,15 @@ def prueba_etiquetas_curva(datos) -> None:
     comprobar(pp[0] == "arriba" and pr[1] == "arriba",
               "sin referencia, cada serie se etiqueta arriba")
 
+    # El 100% es la meta: se ve aunque coincida con el previsto.
+    pp, pr, pt = chart.posiciones_etiquetas([50.0, 100.0], [nan, nan], [50.0, 100.0])
+    comprobar(pt[1] is not None and pp[1] is not None,
+              "al 100% se etiquetan previsto y tendencia, no una sola")
+    comprobar(pt[1] != pp[1],
+              "y cada una va a un lado del punto", f"previsto {pp[1]}, tendencia {pt[1]}")
+    comprobar(pt[0] is None,
+              "por debajo del 100% se sigue dibujando una sola cifra")
+
 
 def prueba_dias_espera(datos) -> None:
     print("\n7. Columna «DÍAS DE ESPERA»")
@@ -368,9 +382,145 @@ def prueba_cabecera_e_indicadores(datos) -> None:
     comprobar(opciones.alto_indicadores() == 0,
               "al desactivarlos, no se reserva espacio para las tarjetas")
 
+    # Pie de las tarjetas: tamaño y color configurables, vacío = lo de siempre
+    opciones = chart.OpcionesGrafico.desde_bd(base)
+    comprobar(opciones.letra_pie_indicador() == max(opciones.tam_kpi_titulo - 1.5, 5.5)
+              and opciones.color_kpi_pie is None,
+              "sin configurar, la descripción mantiene su tamaño y su gris")
+    base.config[normalizar("Tamaño descripción indicadores")] = "12"
+    base.config[normalizar("Color descripción indicadores")] = "#0000FF"
+    personalizadas = chart.OpcionesGrafico.desde_bd(base)
+    comprobar(personalizadas.letra_pie_indicador() == 12.0
+              and personalizadas.color_kpi_pie == "#0000FF",
+              "los dos parámetros nuevos mandan sobre la descripción")
+    comprobar(personalizadas.alto_indicadores() > opciones.alto_indicadores(),
+              "y la tarjeta crece para que el texto siga cabiendo")
+    base.config[normalizar("Tamaño descripción indicadores")] = ""
+    base.config[normalizar("Color descripción indicadores")] = ""
+
+
+def prueba_leyenda(datos) -> None:
+    print("\n9. La leyenda nunca se corta")
+    from matplotlib.figure import Figure
+
+    fig = Figure(figsize=(10, 5), dpi=110)
+    a8 = chart._ancho_leyenda_px(fig, chart.ETIQUETAS_LEYENDA, 8.0)
+    a16 = chart._ancho_leyenda_px(fig, chart.ETIQUETAS_LEYENDA, 16.0)
+    comprobar(a8 >= chart.ANCHO_LEYENDA_PX,
+              "a 8 pt se respeta el mínimo de seguridad", f"{a8:.0f} px")
+    comprobar(a16 > a8 * 1.5,
+              "al doblar la letra, el hueco reservado crece de verdad",
+              f"{a8:.0f} px -> {a16:.0f} px")
+
+    # El texto medido tiene que caber en lo que se reserva a su izquierda.
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.font_manager import FontProperties
+    renderer = FigureCanvasAgg(fig).get_renderer()
+    for tam in (8.0, 12.0, 16.0):
+        propiedades = FontProperties(family=chart.FUENTES, size=tam)
+        texto = max(
+            renderer.get_text_width_height_descent(t, propiedades, False)[0]
+            for t in chart.ETIQUETAS_LEYENDA
+        )
+        hueco = chart._ancho_leyenda_px(fig, chart.ETIQUETAS_LEYENDA, tam)
+        comprobar(hueco > texto + tam * 2,
+                  f"a {tam:.0f} pt queda sitio para el texto y su muestra",
+                  f"texto {texto:.0f} px de {hueco:.0f} px")
+
+    if datos is None:
+        return
+    base = modulo_bd.cargar(BASE / NOMBRE_BD)
+    base.config[normalizar("Tamaño leyenda")] = "16"
+    opciones = chart.OpcionesGrafico.desde_bd(base)
+    comprobar(bool(chart.generar(datos.ev, opciones, titulo=datos.nombre)),
+              "el gráfico se sigue generando con la leyenda a 16 pt")
+    base.config[normalizar("Tamaño leyenda")] = "8"
+
+    # El recuadro del área de trazado se cierra por sus dos lados
+    ax = Figure(figsize=(10, 5), dpi=110).add_subplot(1, 1, 1)
+    ax2 = ax.twinx()
+    chart._marco_trazado(ax, ax2)
+    izquierdo, derecho = ax.spines["left"], ax2.spines["right"]
+    comprobar(derecho.get_visible(), "el eje derecho también dibuja su línea vertical")
+    comprobar(derecho.get_edgecolor() == izquierdo.get_edgecolor()
+              and derecho.get_linewidth() == izquierdo.get_linewidth(),
+              "con el mismo color y grosor que la del eje izquierdo",
+              f"{chart.GRIS_REJILLA} a {chart.GROSOR_MARCO}")
+    comprobar(not any(ax.spines[l].get_visible() or ax2.spines[l].get_visible()
+                      for l in ("top", "bottom")),
+              "arriba y abajo se siguen dejando sin línea")
+
+
+def prueba_fechas_y_barras(datos) -> None:
+    print("\n10. Fechas FI/FF y etiquetas de las barras")
+    if datos is None:
+        comprobar(False, "no se puede probar sin datos del archivo modelo")
+        return
+    ev = datos.ev
+    comprobar(ev.fecha_inicio is not None and ev.fecha_fin is not None,
+              "el archivo modelo trae las dos fechas",
+              f"FI {ev.fecha_inicio} · FF {ev.fecha_fin}")
+
+    fila_fecha = ev.filas.get("fecha")
+    comprobar(fila_fecha == 9, "la fila FECHA se localiza por su etiqueta",
+              f"fila {fila_fecha} ({ev.origen.get('fecha')})")
+
+    base = modulo_bd.cargar(BASE / NOMBRE_BD)
+    opciones = chart.OpcionesGrafico.desde_bd(base)
+    n = len(ev.semanas)
+    comprobar(opciones.letra_fechas(n) == opciones.letra_etiquetas_lineas(n)
+              and opciones.color_fechas is None,
+              "sin configurar, heredan el tamaño de las etiquetas y salen en negro")
+    base.config[normalizar("Tamaño fechas FI y FF")] = "14"
+    base.config[normalizar("Color fechas FI y FF")] = "#C32025"
+    personalizadas = chart.OpcionesGrafico.desde_bd(base)
+    comprobar(personalizadas.letra_fechas(n) == 14.0
+              and personalizadas.color_fechas == "#C32025",
+              "y los dos parámetros nuevos las controlan")
+    base.config[normalizar("Tamaño fechas FI y FF")] = ""
+    base.config[normalizar("Color fechas FI y FF")] = ""
+
+    # Las anotaciones tienen que caer dentro del área de trazado.
+    from matplotlib.figure import Figure
+    fig = Figure(figsize=(10, 5), dpi=110)
+    ax = fig.add_subplot(1, 1, 1)
+    ax.set_ylim(opciones.izq_min, opciones.izq_max)
+    p = chart._a_porcentaje(ev.series["previsto_acum"], n)
+    r = chart._a_porcentaje(ev.series["real_acum"], n)
+    t = chart._a_porcentaje(ev.series["tendencia_acum"], n)
+    chart._anotar_fechas(ax, opciones, ev, p, r, t)
+    textos = [a for a in ax.texts if a.get_text().startswith(("FI:", "FF:"))]
+    comprobar(len(textos) == 2, "se dibujan las dos marcas", str(len(textos)))
+    techo = opciones.izq_max - (opciones.izq_max - opciones.izq_min) * chart.ALTURA_FECHAS
+    comprobar(all(a.xy[1] <= techo + 1e-9 for a in textos),
+              "ninguna se ancla tan arriba que se salga del gráfico",
+              f"techo {techo:.0f}%")
+    comprobar(textos[0].xy[0] < textos[1].xy[0],
+              "FI va en la primera semana y FF en la última",
+              f"S{int(textos[0].xy[0]) + 1} y S{int(textos[1].xy[0]) + 1}")
+
+    # Una fecha que falte no debe impedir que se dibuje la otra.
+    copia = copy.copy(ev)
+    copia.fecha_inicio = None
+    ax2 = Figure(figsize=(10, 5), dpi=110).add_subplot(1, 1, 1)
+    chart._anotar_fechas(ax2, opciones, copia, p, r, t)
+    comprobar([a.get_text()[:2] for a in ax2.texts] == ["FF"],
+              "sin fecha de inicio, se dibuja solo FF")
+
+    # Etiquetas de barras: se etiqueta todo avance, por pequeño que sea
+    comprobar(chart.EPSILON_CERO < 0.1,
+              "el umbral deja pasar hasta un 0,1% de avance",
+              f"{chart.EPSILON_CERO}")
+    minimas = {"previsto": [0.001, 0.0], "real": [0.001, 0.0],
+               "tendencia": [0.001, 0.0], "previsto_acum": [0.001, 0.001],
+               "real_acum": [0.001, 0.001], "tendencia_acum": [None, None]}
+    diminuto = ev_reader.DatosEV(semanas=["S1", "S2"], series=minimas, idx_corte=1)
+    comprobar(bool(chart.generar(diminuto, opciones)),
+              "el gráfico se genera con barras casi planas")
+
 
 def prueba_actualizar_bd(carpeta: Path) -> None:
-    print("\n9. Actualizar una BD existente sin perder datos")
+    print("\n11. Actualizar una BD existente sin perder datos")
     import crear_bd
 
     destino = carpeta / "BD_usuario.xlsx"
@@ -457,9 +607,88 @@ def prueba_actualizar_bd(carpeta: Path) -> None:
     comprobar(modulo_bd.cargar(destino).cfg("Ancho imagen en el correo") == "1200",
               "conservando el valor que el usuario tenía escrito")
 
+    # Las hojas de mapeo también pueden ganar columnas al subir de versión
+    def cabecera(ruta: Path, hoja: str) -> list[str]:
+        ws = load_workbook(ruta)[hoja]
+        return [str(ws.cell(row=1, column=c).value).strip()
+                for c in range(1, (ws.max_column or 1) + 1)
+                if ws.cell(row=1, column=c).value]
+
+    wb = load_workbook(destino)
+    ws = wb["MapeoEV"]
+    columna = cabecera(destino, "MapeoEV").index("FECHA") + 1
+    ws.cell(row=2, column=1, value="W51-2026-D04-7951")
+    ws.cell(row=2, column=columna + 1, value=10)        # su MES, que sí tenía puesto
+    ws.delete_cols(columna)                             # una BD sin la columna nueva
+    wb.save(destino); wb.close()
+    comprobar("FECHA" not in cabecera(destino, "MapeoEV"),
+              "se simula una BD anterior, sin la columna FECHA")
+
+    anadidos = crear_bd.actualizar(destino)
+    comprobar(any("MapeoEV · FECHA" == a for a in anadidos),
+              "al actualizar se añade la columna que faltaba", "; ".join(anadidos))
+    comprobar(cabecera(destino, "MapeoEV") == cabecera(limpia, "MapeoEV"),
+              "con las mismas columnas y en el mismo orden que una BD nueva")
+    ws = load_workbook(destino)["MapeoEV"]
+    comprobar(ws.cell(row=2, column=1).value == "W51-2026-D04-7951",
+              "sin perder la fila del proyecto")
+    mes = cabecera(destino, "MapeoEV").index("MES") + 1
+    comprobar(ws.cell(row=2, column=mes).value == 10,
+              "ni el valor que ya tenía en otra columna",
+              f"MES = {ws.cell(row=2, column=mes).value}")
+
+    # La celda del ancho va en formato Texto, para que Excel no convierta «90%»
+    # en 0,9 y deje la celda contaminada con formato de porcentaje.
+    def celda_ancho(ruta: Path):
+        ws = load_workbook(ruta)["Config"]
+        for r in range(2, (ws.max_row or 1) + 1):
+            if ws.cell(row=r, column=1).value == "Ancho imagen en el correo":
+                return ws.cell(row=r, column=2)
+        return None
+
+    comprobar(celda_ancho(limpia).number_format == "@",
+              "en una BD nueva, la celda del ancho es de Texto",
+              celda_ancho(limpia).number_format)
+
+    # Se simula la celda ya contaminada: el 90% guardado como número 0,9
+    wb = load_workbook(destino)
+    ws = wb["Config"]
+    for r in range(2, (ws.max_row or 1) + 1):
+        if ws.cell(row=r, column=1).value == "Ancho imagen en el correo":
+            ws.cell(row=r, column=2, value=0.9).number_format = "0%"
+            break
+    wb.save(destino); wb.close()
+
+    crear_bd.actualizar(destino)
+    comprobar(celda_ancho(destino).value == "90%",
+              "al actualizar, un 0,9 heredado se reescribe como 90%",
+              str(celda_ancho(destino).value))
+    comprobar(celda_ancho(destino).number_format == "@",
+              "y la celda queda en Texto", celda_ancho(destino).number_format)
+
+    # El formato contaminado se arregla aunque el valor ya fuera correcto
+    wb = load_workbook(destino)
+    ws = wb["Config"]
+    for r in range(2, (ws.max_row or 1) + 1):
+        if ws.cell(row=r, column=1).value == "Ancho imagen en el correo":
+            ws.cell(row=r, column=2, value="1400").number_format = "0%"
+            break
+    validaciones = len(ws.data_validations.dataValidation)
+    wb.save(destino); wb.close()
+
+    crear_bd.actualizar(destino)
+    comprobar(celda_ancho(destino).number_format == "@"
+              and celda_ancho(destino).value == "1400",
+              "un formato de porcentaje se corrige sin tocar un valor ya válido")
+    crear_bd.actualizar(destino)
+    ws = load_workbook(destino)["Config"]
+    comprobar(len(ws.data_validations.dataValidation) == validaciones,
+              "y repetirlo no acumula desplegables",
+              f"{len(ws.data_validations.dataValidation)} validaciones")
+
 
 def prueba_ancho_grafico() -> None:
-    print("\n10. Ancho de la Curva S en el correo")
+    print("\n12. Ancho de la Curva S en el correo")
     cid = email_builder.CID_GRAFICO
     canonico = (
         f'<p><img src="cid:{cid}" width="100%" alt="Curva S del proyecto"></p>'
@@ -497,9 +726,46 @@ def prueba_ancho_grafico() -> None:
     comprobar('width="1200"' in email_builder.ancho_para_correo(en_px, "1200"),
               "y el correo respeta ese mismo valor")
 
+    # El porcentaje se aplica de verdad, no se convierte siempre al ancho total
+    al_60 = f'<p><img src="cid:{cid}" width="60%" alt="Curva S"></p>'
+    comprobar('width="600"' in email_builder.ancho_para_vista(al_60, 1000),
+              "un 60% ocupa 600 px de los 1000 del editor, no los 1000")
+    comprobar('width="60%"' in email_builder.ancho_para_correo(al_60, "60%"),
+              "y al enviar vuelve a salir como porcentaje")
+
+    # Formatos que la gente escribe de verdad en la celda de Config
+    # La regla: hasta 100 es porcentaje, por encima de 100 son píxeles. Y lo que
+    # Excel guarda al teclear «90%» es el número 0,9, que también hay que entender.
+    equivalencias = [
+        ("", "100%"), ("100 %", "100%"), ("80,5%", "80%"), ("1200px", "1200"),
+        ("1.200", "1200"), ("1,200", "1200"), ("  90 % ", "90%"), ("abc", "100%"),
+        ("500%", "100%"), ("5%", "10%"), ("9999", "2400"),
+        # sin %, se prioriza el porcentaje
+        ("90", "90%"), ("80", "80%"), ("100", "100%"), ("1400", "1400"),
+        # fracciones que deja Excel en la celda
+        ("0.9", "90%"), ("0,9", "90%"), ("1", "100%"), ("0.75", "75%"),
+    ]
+    errores = [
+        (bruto, email_builder.normalizar_ancho(bruto), esperado)
+        for bruto, esperado in equivalencias
+        if email_builder.normalizar_ancho(bruto) != esperado
+    ]
+    comprobar(not errores, "se entienden las formas habituales de escribir el ancho",
+              "; ".join(f"{b!r} dio {d} y no {e}" for b, d, e in errores) or
+              f"{len(equivalencias)} formatos")
+
+    # Vuelta completa con el 90% tal y como lo deja Excel en la celda (0,9)
+    canonico_90 = f'<p><img src="cid:{cid}" width="{email_builder.normalizar_ancho("0.9")}"></p>'
+    comprobar('width="90%"' in canonico_90,
+              "el 0,9 que guarda Excel se convierte en 90% al armar el correo")
+    comprobar('width="900"' in email_builder.ancho_para_vista(canonico_90, 1000),
+              "y la vista previa lo dibuja a 900 px de los 1000, no minúsculo")
+    comprobar('width="90%"' in email_builder.ancho_para_correo(canonico_90, "0,9"),
+              "al enviar vuelve a salir como 90%")
+
 
 def prueba_correo(datos) -> None:
-    print("\n11. Armado del correo")
+    print("\n13. Armado del correo")
     if datos is None:
         comprobar(False, "no se puede probar sin datos del archivo modelo")
         return
@@ -585,6 +851,8 @@ def main() -> int:
         prueba_etiquetas_curva(datos)
         prueba_dias_espera(datos)
         prueba_cabecera_e_indicadores(datos)
+        prueba_leyenda(datos)
+        prueba_fechas_y_barras(datos)
         prueba_actualizar_bd(carpeta)
         prueba_ancho_grafico()
         prueba_correo(datos)

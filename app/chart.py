@@ -16,7 +16,9 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+from matplotlib.backends.backend_agg import FigureCanvasAgg  # noqa: E402
 from matplotlib.figure import Figure          # noqa: E402
+from matplotlib.font_manager import FontProperties  # noqa: E402
 from matplotlib.lines import Line2D           # noqa: E402
 from matplotlib.patches import FancyBboxPatch, Patch, Rectangle  # noqa: E402
 
@@ -35,6 +37,7 @@ from .constantes import (                      # noqa: E402
 )
 
 GRIS_REJILLA = "#D9D9D9"
+GROSOR_MARCO = 0.8          # las dos lineas verticales del area de trazado
 # Los porcentajes de los ejes Y y la leyenda no siguen al color del eje X:
 # si no, oscurecer las bandas los dejaria invisibles.
 GRIS_TEXTO = "#595959"
@@ -45,7 +48,14 @@ FUENTES = ["Segoe UI", "Calibri", "DejaVu Sans", "sans-serif"]
 
 # Espacio que se reserva a la derecha del area de trazado, en pixeles.
 # Valores medidos sobre la figura real a 8 pt, con algo de holgura.
-ANCHO_LEYENDA_PX = 150      # "% Tendencia Acum" mide 141 px
+ANCHO_LEYENDA_PX = 150      # "% Tendencia Acum" mide 141 px a 8 pt; es el minimo
+
+# Rotulos de la leyenda, en el mismo orden en que se construye mas abajo. Se
+# declaran aparte porque hay que medirlos antes de repartir el espacio.
+ETIQUETAS_LEYENDA = [
+    "% Previsto", "% Real", "% Tendencia",
+    "% Previsto Acum", "% Real Acum", "% Tendencia Acum",
+]
 ANCHO_ETIQUETAS_PX = 34     # las etiquetas del eje derecho ocupan 27 px
 AIRE_PX = 16                # separacion entre esas etiquetas y la leyenda
 MARGEN_DERECHO_PX = 14
@@ -67,9 +77,20 @@ SPI_OBJETIVO = 0.95
 
 # Dos cifras que difieran menos que esto se consideran la misma y se dibuja una.
 EPSILON_IGUAL = 0.05
+# Por debajo de esto una barra se considera sin avance y no se etiqueta.
+EPSILON_CERO = 0.05
+# El 100% es la meta del proyecto: se etiqueta siempre, aunque coincida con otra
+# serie y la regla de arriba la fundiria con ella.
+VALOR_META = 100.0
 # Por debajo de esta fraccion del eje izquierdo no cabe una etiqueta "abajo":
 # se saldria del area de trazado y pisaria la banda de semanas.
 FRACCION_PISO = 0.07
+
+# Fechas FI/FF: separacion sobre el punto, en puntos tipograficos (la etiqueta de
+# datos va a 11, asi que 30 la deja holgadamente por encima), y fraccion del eje
+# que se reserva arriba para que el texto no se salga del area de trazado.
+SEPARACION_FECHAS_PT = 30
+ALTURA_FECHAS = 0.12
 
 
 @dataclass
@@ -96,6 +117,8 @@ class OpcionesGrafico:
     tam_subtitulo: float = 10.0
     tam_kpi_titulo: float = 9.0
     tam_kpi_valor: float = 20.0
+    tam_kpi_pie: float | None = None
+    tam_fechas: float | None = None
 
     # -- cabecera e indicadores -------------------------------------------- #
     subtitulo: str = "CURVA S DE AVANCE DEL PROYECTO"
@@ -103,6 +126,8 @@ class OpcionesGrafico:
     mostrar_indicadores: bool = True
     color_fondo_indicador: str = COLOR_FONDO_INDICADOR
     color_marco: str = COLOR_MARCO_GRAFICO
+    color_kpi_pie: str | None = None
+    color_fechas: str | None = None
     decimales: int = 0
 
     # -- colores de las series --------------------------------------------- #
@@ -158,12 +183,16 @@ class OpcionesGrafico:
             tam_subtitulo=bd.cfg_float("Tamaño subtítulo gráfico", 10.0),
             tam_kpi_titulo=bd.cfg_float("Tamaño título indicadores", 9.0),
             tam_kpi_valor=bd.cfg_float("Tamaño valor indicadores", 20.0),
+            tam_kpi_pie=bd.cfg_float_opcional("Tamaño descripción indicadores"),
+            tam_fechas=bd.cfg_float_opcional("Tamaño fechas FI y FF"),
 
             subtitulo=bd.cfg("Subtítulo gráfico"),
             color_fondo_titulo=color("Color fondo título", COLOR_CORPORATIVO),
             mostrar_indicadores=bd.cfg_bool("Mostrar indicadores en gráfico", True),
             color_fondo_indicador=color("Color fondo indicadores", COLOR_FONDO_INDICADOR),
             color_marco=color("Color marco gráfico", COLOR_MARCO_GRAFICO),
+            color_kpi_pie=bd.cfg_opcional("Color descripción indicadores"),
+            color_fechas=bd.cfg_opcional("Color fechas FI y FF"),
             decimales=bd.cfg_int("Decimales avance", 0),
 
             color_linea_previsto=color("Color línea Previsto Acum", COLOR_LINEA_PREVISTO),
@@ -202,7 +231,10 @@ class OpcionesGrafico:
     def alto_indicadores(self) -> float:
         if not self.mostrar_indicadores:
             return 0.0
-        return self.tam_kpi_titulo * 1.8 + self.tam_kpi_valor * 1.9 + 34
+        # El 19 es el acento de color mas el aire; el resto crece con la letra,
+        # tambien con la del pie, para que agrandarlo no lo saque de la tarjeta.
+        return (self.tam_kpi_titulo * 1.8 + self.tam_kpi_valor * 1.9
+                + self.letra_pie_indicador() * 2.0 + 19)
 
     # -- tamanos resueltos segun el numero de semanas ---------------------- #
     def letra_etiquetas_lineas(self, n: int) -> float:
@@ -216,6 +248,12 @@ class OpcionesGrafico:
 
     def letra_meses(self, n: int) -> float:
         return self.tam_meses or (7.5 if n <= 30 else 6.5)
+
+    def letra_pie_indicador(self) -> float:
+        return self.tam_kpi_pie or max(self.tam_kpi_titulo - 1.5, 5.5)
+
+    def letra_fechas(self, n: int) -> float:
+        return self.tam_fechas or self.letra_etiquetas_lineas(n)
 
 
 # --------------------------------------------------------------------------- #
@@ -247,10 +285,11 @@ def posiciones_etiquetas(
             pos_t[i] = "arriba" if (not hay_p or t > p) else "abajo"
 
         if hay_p:
-            # una cifra practicamente igual a la del previsto se omite
-            if hay_r and abs(r - p) < EPSILON_IGUAL:
+            # una cifra practicamente igual a la del previsto se omite, salvo
+            # que sea el 100%: esa interesa verla en las dos series
+            if hay_r and abs(r - p) < EPSILON_IGUAL and abs(r - VALOR_META) >= EPSILON_IGUAL:
                 pos_r[i] = None
-            if hay_t and abs(t - p) < EPSILON_IGUAL:
+            if hay_t and abs(t - p) < EPSILON_IGUAL and abs(t - VALOR_META) >= EPSILON_IGUAL:
                 pos_t[i] = None
 
             lado_referencia = pos_r[i] if hay_r else (pos_t[i] if hay_t else None)
@@ -258,7 +297,8 @@ def posiciones_etiquetas(
 
     primera_tendencia = next((i for i, v in enumerate(tendencia) if v == v), None)
     if primera_tendencia is not None:
-        pos_t[primera_tendencia] = None
+        if abs(tendencia[primera_tendencia] - VALOR_META) >= EPSILON_IGUAL:
+            pos_t[primera_tendencia] = None
 
     return pos_p, pos_r, pos_t
 
@@ -296,6 +336,46 @@ def _cajas(ax, bloques: list[tuple[str, float, float]], tam_letra: float,
             (ini + fin) / 2, 0.5, etiqueta,
             ha="center", va="center", fontsize=tam_letra, color=color_texto,
         )
+
+
+def _marco_trazado(ax, ax2) -> None:
+    """Cierra el area de trazado por sus dos lados verticales.
+
+    Solo se ven las lineas de los ejes Y: la izquierda es la de `ax` (las lineas
+    acumuladas) y la derecha la de `ax2` (las barras). Arriba y abajo no se
+    dibuja nada, que ahi ya estan la rejilla y las bandas de semanas.
+    """
+    for lado in ("top", "right", "bottom"):
+        ax.spines[lado].set_visible(False)
+        ax2.spines[lado].set_visible(False)
+    ax2.spines["left"].set_visible(False)
+    for linea in (ax.spines["left"], ax2.spines["right"]):
+        linea.set_visible(True)
+        linea.set_color(GRIS_REJILLA)
+        linea.set_linewidth(GROSOR_MARCO)
+
+
+def _ancho_leyenda_px(fig, etiquetas: list[str], tam_letra: float) -> float:
+    """Ancho que necesita la leyenda para no cortarse.
+
+    Se mide el rotulo mas largo con la misma letra con la que se va a dibujar y
+    se le suma la muestra (la linea o el recuadro de color) y la holgura. Si la
+    medicion no fuera posible se cae en la constante de siempre, calculada a 8 pt.
+    """
+    try:
+        # Una figura recien creada aun no tiene lienzo Agg, y sin el no hay con
+        # que medir; savefig() crearia uno mas tarde, pero aqui hace falta ya.
+        renderer = FigureCanvasAgg(fig).get_renderer()
+        propiedades = FontProperties(family=FUENTES, size=tam_letra)
+        ancho_texto = max(
+            renderer.get_text_width_height_descent(t, propiedades, False)[0]
+            for t in etiquetas
+        )
+    except Exception:                                           # noqa: BLE001
+        return ANCHO_LEYENDA_PX
+    # muestra (handlelength) + separacion + un respiro a la derecha, todo
+    # proporcional a la letra porque la leyenda crece con ella
+    return max(ancho_texto + tam_letra * 5.5, ANCHO_LEYENDA_PX)
 
 
 def _caja(lienzo, x, y, ancho, alto, relleno, borde=None, radio=RADIO_ESQUINA_PX,
@@ -371,8 +451,59 @@ def _dibujar_indicadores(lienzo, opciones: OpcionesGrafico,
                     color=color, fontweight="bold", zorder=4)
         lienzo.text(centro, abajo_px + ALTO_ACENTO_PX + 12, pie,
                     ha="center", va="center",
-                    fontsize=max(opciones.tam_kpi_titulo - 1.5, 5.5),
-                    color=GRIS_TEXTO, alpha=0.85, zorder=4)
+                    fontsize=opciones.letra_pie_indicador(),
+                    color=opciones.color_kpi_pie or GRIS_TEXTO,
+                    alpha=1.0 if opciones.color_kpi_pie else 0.85, zorder=4)
+
+
+def _anotar_fechas(ax, opciones: OpcionesGrafico, datos_ev,
+                   previsto_ac: list[float], real_ac: list[float],
+                   tendencia_ac: list[float]) -> None:
+    """«FI: dd/mm» sobre el primer punto y «FF: dd/mm» sobre el ultimo.
+
+    Se colocan bastante por encima del punto, mas arriba que la etiqueta de datos
+    de esa semana, y el ancla se baja cuando el punto ya esta en la franja alta
+    del eje para que el texto no se salga del area de trazado. FI se alinea a la
+    izquierda y FF a la derecha, asi ninguno se sale por los lados.
+    """
+    n = len(previsto_ac)
+    if n == 0:
+        return
+
+    def indice(valores: list[float], desde_el_final: bool) -> int | None:
+        rango = range(n - 1, -1, -1) if desde_el_final else range(n)
+        return next((i for i in rango if valores[i] == valores[i]), None)
+
+    def altura(i: int) -> float:
+        # el punto mas alto de las tres series en esa semana
+        candidatos = [s[i] for s in (previsto_ac, real_ac, tendencia_ac) if s[i] == s[i]]
+        return max(candidatos) if candidatos else opciones.izq_min
+
+    recorrido = opciones.izq_max - opciones.izq_min
+    techo = opciones.izq_max - recorrido * ALTURA_FECHAS
+    tam = opciones.letra_fechas(n)
+    color = opciones.color_fechas or NEGRO_ETIQUETA
+
+    inicio = indice(real_ac, False)
+    if inicio is None:
+        inicio = indice(previsto_ac, False)
+    fin = indice(previsto_ac, True)
+    if fin is None:
+        fin = indice(tendencia_ac, True)
+
+    marcas = (
+        (datos_ev.fecha_inicio, "FI", inicio, "left", -8),
+        (datos_ev.fecha_fin, "FF", fin, "right", 8),
+    )
+    for fecha, rotulo, i, alineacion, dx in marcas:
+        if fecha is None or i is None:
+            continue
+        ax.annotate(
+            f"{rotulo}: {fecha.strftime('%d/%m')}",
+            (i, min(altura(i), techo)), textcoords="offset points",
+            xytext=(dx, SEPARACION_FECHAS_PT), ha=alineacion, va="bottom",
+            fontsize=tam, color=color, fontweight="bold", zorder=9,
+        )
 
 
 def _tarjetas_indicadores(datos_ev, opciones: OpcionesGrafico
@@ -441,10 +572,13 @@ def generar(datos_ev, opciones: OpcionesGrafico | None = None,
 
     # El hueco de la derecha y el del titulo se calculan en pixeles y no como
     # fraccion fija: asi la leyenda nunca pisa las etiquetas del eje derecho y el
-    # area de trazado no se descuadra al cambiar el tamano de la imagen.
-    reserva = ANCHO_ETIQUETAS_PX + AIRE_PX + ANCHO_LEYENDA_PX + MARGEN_DERECHO_PX
-    derecha = min(max(1 - reserva / opciones.ancho_px, 0.55), 0.90)
-    ancla_leyenda = 1 - (ANCHO_LEYENDA_PX + MARGEN_DERECHO_PX) / opciones.ancho_px
+    # area de trazado no se descuadra al cambiar el tamano de la imagen. El ancho
+    # de la leyenda se mide sobre su propio texto, para que no se corte por mucho
+    # que se agrande la letra.
+    ancho_leyenda = _ancho_leyenda_px(fig, ETIQUETAS_LEYENDA, opciones.tam_leyenda)
+    reserva = ANCHO_ETIQUETAS_PX + AIRE_PX + ancho_leyenda + MARGEN_DERECHO_PX
+    derecha = min(max(1 - reserva / opciones.ancho_px, 0.45), 0.90)
+    ancla_leyenda = 1 - (ancho_leyenda + MARGEN_DERECHO_PX) / opciones.ancho_px
 
     # Reparto vertical, tambien en pixeles:
     #   margen · cabecera · hueco · [trazado + bandas] · hueco · indicadores · margen
@@ -523,11 +657,7 @@ def generar(datos_ev, opciones: OpcionesGrafico | None = None,
     ax2.tick_params(axis="y", labelsize=opciones.tam_eje_der, colors=GRIS_TEXTO, length=0)
     ax.yaxis.set_major_formatter(lambda v, _: f"{v:.0f}%")
     ax2.yaxis.set_major_formatter(lambda v, _: f"{v:.0f}%")
-    for lado in ("top", "right", "bottom"):
-        ax.spines[lado].set_visible(False)
-        ax2.spines[lado].set_visible(False)
-    ax.spines["left"].set_color(GRIS_REJILLA)
-    ax2.spines["left"].set_visible(False)
+    _marco_trazado(ax, ax2)
 
     # --- etiquetas de datos --------------------------------------------- #
     if opciones.etiquetas:
@@ -558,13 +688,17 @@ def generar(datos_ev, opciones: OpcionesGrafico | None = None,
         tam_barra = opciones.letra_etiquetas_barras(n)
         for posiciones, valores, _, color_etq, _ in barras:
             for x, v in zip(posiciones, valores):
-                if v != v or v < 1.5:            # cifras ilegibles en barras minimas
+                # Se etiqueta toda barra con avance, por pequeno que sea; solo se
+                # deja limpia la semana sin nada que contar.
+                if v != v or abs(v) < EPSILON_CERO:
                     continue
                 ax2.annotate(
                     f"{v:.1f}%", (x, v), textcoords="offset points",
                     xytext=(0, 2), ha="center", va="bottom", rotation=90,
                     fontsize=tam_barra, color=color_etq, zorder=3,
                 )
+
+    _anotar_fechas(ax, opciones, datos_ev, previsto_ac, real_ac, tendencia_ac)
 
     # --- bandas de semanas y meses --------------------------------------- #
     ax_semanas = _banda(fig, gs, 1, limites)
